@@ -18,6 +18,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Lithuanian and Turkic tailorings; `simpleLower`, `simpleUpper`, `simpleTitle`
   and `simpleFold`.
 
+### Fixed
+
+- The table generator builds for the host's baseline CPU, so CI, which runs a
+  binary built on one runner on another, can run the table check on any runner.
+
 ## [0.1.0] - 2026-10-13
 
 ### Added

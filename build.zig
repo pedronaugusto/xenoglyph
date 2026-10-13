@@ -21,12 +21,13 @@ pub fn dev(b: *std.Build, tools: type) void {
     const library = package.artifact("xenoglyph");
 
     // The generator runs on the build host, built optimized: it reads the
-    // whole UCD on every check.
+    // whole UCD on every check. It targets the host's baseline CPU, as the
+    // tests do in CI, where a binary built on one runner runs on another.
     const generator = b.addExecutable(.{
         .name = "generate",
         .root_module = b.createModule(.{
             .root_source_file = p.path("tools/generate.zig"),
-            .target = b.graph.host,
+            .target = b.resolveTargetQuery(.{ .cpu_model = .baseline }),
             .optimize = .safe,
             .imports = &.{.{ .name = "classes", .module = b.createModule(.{ .root_source_file = p.path("src/classes.zig") }) }},
         }),
