@@ -76,22 +76,32 @@ pub fn codepoint(cp: u21, comptime options: Options) u2 {
 /// points in order.
 const Measure = struct {
     columns: u2,
-    previous: Cluster,
+    /// The record index of the last code point that counted.
+    previous: u8,
+
+    /// Each record's columns, worked out once for the options.
+    fn table(comptime options: Options) *const [records.cluster_records.len]u2 {
+        return &struct {
+            const columns = blk: {
+                var c: [records.cluster_records.len]u2 = undefined;
+                for (&c, records.cluster_records) |*x, r| x.* = columnsOf(@bitCast(r), options);
+                break :blk c;
+            };
+        }.columns;
+    }
 
     inline fn start(index: u8, comptime options: Options) Measure {
-        const record = records.clusterRecord(index);
-        return .{ .columns = columnsOf(record, options), .previous = record };
+        return .{ .columns = table(options)[index], .previous = index };
     }
 
     inline fn add(m: *Measure, cp: u21, index: u8, comptime options: Options) void {
-        const record = records.clusterRecord(index);
         if (cp == 0xfe0f or cp == 0xfe0e) {
-            if (!m.previous.variation_base) return;
+            if (!records.clusterRecord(m.previous).variation_base) return;
             m.columns = if (cp == 0xfe0f) 2 else 1;
-        } else if (columnsOf(record, options) != 0) {
+        } else if (table(options)[index] != 0) {
             m.columns = 2;
         }
-        m.previous = record;
+        m.previous = index;
     }
 };
 
