@@ -1,0 +1,82 @@
+{
+  "sources": [
+    "src"
+  ],
+  "test_roots": [
+    "src/tests.zig"
+  ],
+  "test_support": [
+    "src/testing/**"
+  ],
+  "test_dependencies": [
+    "shakedown"
+  ],
+  "function_exceptions": {},
+  "layout_exceptions": {},
+  "docs": {
+    "zig build docs -- usage": {
+      "source": "examples/usage.zig",
+      "region": "usage",
+      "imports": [
+        "xenoglyph"
+      ]
+    },
+    "zig build docs -- words": {
+      "source": "examples/usage.zig",
+      "region": "words",
+      "imports": [
+        "xenoglyph"
+      ]
+    },
+    "zig build docs -- properties": {
+      "source": "examples/usage.zig",
+      "region": "properties",
+      "imports": [
+        "xenoglyph"
+      ]
+    },
+    "zig build docs -- stream": {
+      "source": "examples/usage.zig",
+      "region": "stream",
+      "imports": [
+        "xenoglyph"
+      ]
+    }
+  },
+  "extra_checks": [
+    [
+      "zig",
+      "build",
+      "check-consumer"
+    ],
+    [
+      "zig",
+      "build",
+      "check-freestanding"
+    ]
+  ],
+  "glint": {
+    "rules": [
+      {
+        "id": "P001",
+        "level": "gate"
+      },
+      {
+        "id": "P003",
+        "level": "gate"
+      },
+      {
+        "id": "Z026",
+        "level": "gate"
+      }
+    ]
+  },
+  "glint_paths": [
+    "src",
+    "bench",
+    "examples",
+    "ci",
+    "tools",
+    "build.zig"
+  ]
+}
