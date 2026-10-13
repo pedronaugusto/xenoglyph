@@ -35,7 +35,9 @@ pub const Rules = struct {
         extend,
         /// UTS #51 (ED-13, and 2.4): a modifier changes only an
         /// Emoji_Modifier_Base it directly follows; after anything else it
-        /// starts a cluster of its own, shown as a colour swatch.
+        /// is a colour swatch that reads as Other in every rule
+        /// (Grapheme_Cluster_Break Other, Indic_Conjunct_Break None), so it
+        /// starts a cluster and continues no Indic conjunct.
         after_base,
     };
 
@@ -92,8 +94,10 @@ fn Context(comptime rules: Rules) type {
                 .cr, .lf, .control => n.grapheme_break = .other,
                 else => {},
             };
-            if (rules.modifiers == .after_base and n.modifier and !(ctx.started and ctx.previous.modifier_base))
+            if (rules.modifiers == .after_base and n.modifier and !(ctx.started and ctx.previous.modifier_base)) {
                 n.grapheme_break = .other;
+                n.conjunct = .none;
+            }
             const boundary = !ctx.started or ctx.isBoundary(n);
             ctx.advance(n);
             return boundary;
@@ -322,6 +326,9 @@ test "tailorings" {
     try std.testing.expectEqual(1, count("a\u{1f3fb}", .{}));
     try std.testing.expectEqual(2, count("a\u{1f3fb}", .{ .modifiers = .after_base }));
     try std.testing.expectEqual(1, count("\u{1f44d}\u{1f3fb}", .{ .modifiers = .after_base }));
+    // A swatch continues no Indic conjunct: linker, swatch, consonant.
+    try std.testing.expectEqual(1, count("\u{94d}\u{1f3fb}\u{915}", .{}));
+    try std.testing.expectEqual(3, count("\u{94d}\u{1f3fb}\u{915}", .{ .modifiers = .after_base }));
     // A mark after a control: apart by GB5, joined when controls are Other.
     try std.testing.expectEqual(2, count("\t\u{301}", .{}));
     try std.testing.expectEqual(1, count("\t\u{301}", .{ .controls = .as_other }));
