@@ -140,6 +140,19 @@ pub fn string(bytes: []const u8, comptime options: Options) usize {
             var m: Measure = .start(first.index, options);
             at += first.len;
             while (at < bytes.len) {
+                // After an ASCII code point, an ASCII byte followed by another is
+                // a cluster of its own (but LF after CR): no rule joins it to
+                // either neighbour.
+                const previous = bytes[at - 1];
+                if (previous < 0x80 and bytes[at] < 0x80 and at + 1 < bytes.len and bytes[at + 1] < 0x80 and
+                    !(options.rules.controls == .separate and previous == '\r' and bytes[at] == '\n'))
+                {
+                    total += m.columns;
+                    m = .start(records.ascii_cluster_indexes[bytes[at]], options);
+                    breaker.afterAscii(bytes[at]);
+                    at += 1;
+                    continue;
+                }
                 const n = records.read(bytes[at..]);
                 if (breaker.nextIndex(n.index)) {
                     total += m.columns;
