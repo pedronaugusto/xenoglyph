@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-13
+
 ### Breaking
 
 - `case.equalFold(a, b, options)` is `case.equal(.default, a, b, options)`:
