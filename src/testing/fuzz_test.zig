@@ -58,10 +58,10 @@ fn expectCover(bytes: []const u8, it: anytype) !std.ArrayList(usize) {
     var ends: std.ArrayList(usize) = .empty;
     var start: usize = 0;
     while (it.nextSpan()) |span| {
-        try std.testing.expectEqual(start, span.start);
-        try std.testing.expect(span.end > span.start);
-        try ends.append(std.testing.allocator, span.end);
-        start = span.end;
+        try std.testing.expectEqual(start, span.start.raw());
+        try std.testing.expect(span.end.compare(span.start) == .gt);
+        try ends.append(std.testing.allocator, span.end.raw());
+        start = span.end.raw();
     }
     try std.testing.expectEqual(bytes.len, start);
     // Every boundary falls where the decoder starts a code point.
@@ -99,8 +99,8 @@ fn segmentsWith(comptime rules: grapheme.Rules, bytes: []const u8) !void {
     // columns are their sum.
     var total: usize = 0;
     var again: grapheme.Iterator(rules) = .init(bytes);
-    while (again.next()) |g| total += width.cluster(g, .{});
-    try std.testing.expectEqual(total, width.string(bytes, .{ .rules = rules }));
+    while (again.next()) |g| total += width.cluster(g, .{}).raw();
+    try std.testing.expectEqual(total, width.string(bytes, .{ .rules = rules }).raw());
 }
 
 fn graphemes(_: void, case: *shakedown.Case) anyerror!void {
@@ -136,10 +136,10 @@ fn againstOracle(_: void, case: *shakedown.Case) anyerror!void {
     var start: usize = 0;
     for (want_lines) |want| {
         const got = l.nextBreak() orelse return error.TestUnexpectedResult;
-        try std.testing.expectEqual(start, got.span.start);
-        try std.testing.expectEqual(want.end, got.span.end);
+        try std.testing.expectEqual(start, got.span.start.raw());
+        try std.testing.expectEqual(want.end, got.span.end.raw());
         try std.testing.expectEqual(want.mandatory, got.mandatory);
-        start = got.span.end;
+        start = got.span.end.raw();
     }
     try std.testing.expectEqual(null, l.nextBreak());
     want_lines = undefined;
@@ -162,12 +162,12 @@ fn widths(_: void, case: *shakedown.Case) anyerror!void {
     var sum: usize = 0;
     var wide: usize = 0;
     while (d.next()) |cp| {
-        sum += width.codepoint(cp, .{});
-        wide += width.codepoint(cp, .{ .ambiguous = .wide });
+        sum += width.codepoint(cp, .{}).raw();
+        wide += width.codepoint(cp, .{ .ambiguous = .wide }).raw();
     }
-    try std.testing.expectEqual(sum, width.string(bytes, .{ .method = .codepoint }));
-    try std.testing.expectEqual(wide, width.string(bytes, .{ .method = .codepoint, .ambiguous = .wide }));
-    try std.testing.expect(width.string(bytes, .{}) <= width.string(bytes, .{ .ambiguous = .wide }));
+    try std.testing.expectEqual(sum, width.string(bytes, .{ .method = .codepoint }).raw());
+    try std.testing.expectEqual(wide, width.string(bytes, .{ .method = .codepoint, .ambiguous = .wide }).raw());
+    try std.testing.expect(width.string(bytes, .{}).compare(width.string(bytes, .{ .ambiguous = .wide })) != .gt);
 }
 
 test "measured by code point, a string's width is the sum of its code points'" {

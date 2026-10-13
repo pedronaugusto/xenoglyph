@@ -9,6 +9,7 @@
 //! so every input, however long its runs, normalizes exactly. Ill-formed
 //! UTF-8 reads as U+FFFD, as everywhere in xenoglyph.
 const std = @import("std");
+const aegis = @import("aegis");
 const classes = @import("classes.zig");
 const data = @import("data.zig");
 const utf8 = @import("utf8.zig");
@@ -81,7 +82,7 @@ pub fn compose(first: u21, second: u21) ?u21 {
 /// where it has none. At most 18 code points.
 pub fn decompose(cp: u21, form: Form, buffer: *[18]u21) []const u21 {
     var e: Expansion = .of(cp, form.compatibility());
-    for (0..e.len) |i| buffer[i] = e.at(@intCast(i));
+    for (buffer[0..e.len], 0..) |*out, i| out.* = e.at(aegis.int.narrow(u8, i) orelse aegis.assert.never("a decomposition is at most 18 code points"));
     return buffer[0..e.len];
 }
 
@@ -298,11 +299,11 @@ pub fn Iterator(comptime form: Form) type {
             const run = it.buffer[0..it.len];
             const marks_from: usize = if (combiningClass(run[0]) == 0) 1 else 0;
             // A stable insertion sort by combining class.
-            var i = marks_from + 1;
+            var i: usize = marks_from + 1;
             while (i < run.len) : (i += 1) {
                 const cp = run[i];
                 const class = combiningClass(cp);
-                var j = i;
+                var j: usize = i;
                 while (j > marks_from and combiningClass(run[j - 1]) > class) : (j -= 1) run[j] = run[j - 1];
                 run[j] = cp;
             }

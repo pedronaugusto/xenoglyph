@@ -17,7 +17,7 @@ const Context = struct {
         return struct {
             fn run(c: *Context, units: u64) WorkloadError!void {
                 for (0..units) |_| {
-                    c.columns +%= xenoglyph.width.string(c.texts[@backingInt(kind)], options);
+                    c.columns +%= xenoglyph.width.string(c.texts[@backingInt(kind)], options).raw();
                     std.mem.doNotOptimizeAway(c.columns);
                 }
             }
@@ -31,7 +31,7 @@ const Context = struct {
             fn run(c: *Context, units: u64) WorkloadError!void {
                 for (0..units) |_| {
                     var it: xenoglyph.grapheme.Iterator(.{ .modifiers = .after_base }) = .init(c.texts[@backingInt(kind)]);
-                    while (it.next()) |g| c.columns +%= xenoglyph.width.cluster(g, .{});
+                    while (it.next()) |g| c.columns +%= xenoglyph.width.cluster(g, .{}).raw();
                     std.mem.doNotOptimizeAway(c.columns);
                 }
             }

@@ -234,9 +234,9 @@ test "width.codepoint of every code point, from the raw properties by the stated
             2
         else
             1;
-        try std.testing.expectEqual(want, width.codepoint(cp, .{}));
+        try std.testing.expectEqual(want, width.codepoint(cp, .{}).raw());
         const wide_want: u2 = if (want == 1 and ea == .ambiguous) 2 else want;
-        try std.testing.expectEqual(wide_want, width.codepoint(cp, .{ .ambiguous = .wide }));
+        try std.testing.expectEqual(wide_want, width.codepoint(cp, .{ .ambiguous = .wide }).raw());
     }
 }
 
@@ -247,6 +247,6 @@ test "values past U+10FFFF get the defaults" {
         try std.testing.expectEqual(.unknown, properties.script(cp));
         try std.testing.expectEqual(1, properties.scriptExtensions(cp).len);
         try std.testing.expectEqual(properties.Emoji{}, properties.emoji(cp));
-        try std.testing.expectEqual(1, width.codepoint(cp, .{}));
+        try std.testing.expectEqual(1, width.codepoint(cp, .{}).raw());
     }
 }

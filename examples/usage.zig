@@ -14,7 +14,7 @@ pub fn main() !void {
     }
     std.debug.assert(count == 4);
     // Terminal columns: each of the four is 2, 2, 1 and 2, and a space 1.
-    std.debug.assert(xenoglyph.width.string(text, .{}) == 10);
+    std.debug.assert(xenoglyph.width.string(text, .{}).eql(.fromRaw(10)));
     // --- README:usage ---
     words();
     properties();
@@ -83,7 +83,7 @@ fn lines() void {
     // holds together, and the line feed ends a line whatever the width.
     for ([_][]const u8{ "A ", "(quick) ", "test", "\u{2014}", "costs ", "$12.50.\n" }) |want| {
         const b = it.nextBreak().?;
-        std.debug.assert(std.mem.eql(u8, text[b.span.start..b.span.end], want));
+        std.debug.assert(std.mem.eql(u8, b.span.of(text), want));
         std.debug.assert(b.mandatory == (want[want.len - 1] == '\n'));
     }
     // --- README:lines ---

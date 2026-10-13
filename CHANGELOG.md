@@ -6,6 +6,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Breaking
+
+- Byte offsets and lengths, terminal columns and cluster counts are distinct aegis
+  domains: `Span.start` and `Span.end` are `Bytes` (`aegis.units.Bytes(usize)`),
+  `width.codepoint`, `width.cluster` and `width.string` return `Columns`, and
+  `grapheme.count` returns `Clusters`; read a number with `.raw()`. `Span.len`
+  returns `Bytes`. `word.boundaryAfter` and `sentence.boundaryAfter` take and
+  return `Bytes`. The iterators' `index` fields are private; `offset()` returns
+  where the next segment starts.
+
+### Added
+
+- `Span.of(text)`, the part of a text a span covers, and `Span.fromRaw`.
+
+### Changed
+
+- Depends on aegis 0.1.3, std only. A generated table entry is checked against
+  its property's values in every build mode, as are the narrowings in case
+  mapping and decomposition.
+- The source checks gate glint's aegis rules A001 to A004.
+
 ## [0.1.1] - 2026-10-13
 
 ### Added

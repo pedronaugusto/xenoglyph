@@ -4,6 +4,7 @@ const gantry = @import("gantry");
 pub const layers: []const gantry.rules.Layer = &.{
     .{ .name = "values and lookups", .patterns = &.{
         "src/classes.zig",
+        "src/domains.zig",
         "src/table.zig",
     } },
     .{ .name = "generated tables", .patterns = &.{ "src/data/**", "src/data.zig" } },
@@ -47,6 +48,7 @@ pub const modules: []const gantry.NamedModule = &.{};
 const package_references = [_]gantry.rules.ReferenceRule{
     .{ .name = "named dependencies", .unresolved_only = true, .except_targets = &.{
         "std",
+        "aegis",
         "shakedown",
         "ucd",
     } },
@@ -57,6 +59,7 @@ pub const references: []const gantry.rules.ReferenceRule = &package_references;
 
 pub const required = [_][]const u8{
     "src/classes.zig",
+    "src/domains.zig",
     "src/table.zig",
     "src/properties.zig",
     "src/records.zig",

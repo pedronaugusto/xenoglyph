@@ -2,6 +2,7 @@
 //! A value above U+10FFFF is no code point; it gets each property's
 //! default, as an unassigned code point does.
 const std = @import("std");
+const aegis = @import("aegis");
 const classes = @import("classes.zig");
 const data = @import("data.zig");
 const records = @import("records.zig");
@@ -34,13 +35,13 @@ pub const unicode_version: std.SemanticVersion = .{ .major = 18, .minor = 0, .pa
 /// General_Category.
 pub fn generalCategory(cp: u21) GeneralCategory {
     if (cp > max_code_point) return .unassigned;
-    return @fromBackingInt(@intCast(general_category_data.table.get(cp)));
+    return entry(GeneralCategory, general_category_data.table.get(cp));
 }
 
 /// East_Asian_Width (UAX #11).
 pub fn eastAsianWidth(cp: u21) EastAsianWidth {
     if (cp > max_code_point) return .neutral;
-    return @fromBackingInt(@intCast(east_asian_width_data.table.get(cp)));
+    return entry(EastAsianWidth, east_asian_width_data.table.get(cp));
 }
 
 /// Grapheme_Cluster_Break (UAX #29).
@@ -56,19 +57,19 @@ pub fn indicConjunctBreak(cp: u21) IndicConjunctBreak {
 /// Word_Break (UAX #29).
 pub fn wordBreak(cp: u21) WordBreak {
     if (cp > max_code_point) return .other;
-    return @fromBackingInt(@intCast(word_break_data.table.get(cp)));
+    return entry(WordBreak, word_break_data.table.get(cp));
 }
 
 /// Sentence_Break (UAX #29).
 pub fn sentenceBreak(cp: u21) SentenceBreak {
     if (cp > max_code_point) return .other;
-    return @fromBackingInt(@intCast(sentence_break_data.table.get(cp)));
+    return entry(SentenceBreak, sentence_break_data.table.get(cp));
 }
 
 /// Line_Break (UAX #14).
 pub fn lineBreak(cp: u21) LineBreak {
     if (cp > max_code_point) return .unknown;
-    return @fromBackingInt(@intCast(line_break_data.table.get(cp)));
+    return entry(LineBreak, line_break_data.table.get(cp));
 }
 
 /// The emoji properties of UTS #51.
@@ -86,7 +87,7 @@ pub fn core(cp: u21) Core {
 /// Script (UAX #24).
 pub fn script(cp: u21) Script {
     if (cp > max_code_point) return .unknown;
-    return @fromBackingInt(@intCast(script_data.table.get(cp)));
+    return entry(Script, script_data.table.get(cp));
 }
 
 /// Script_Extensions (UAX #24): the scripts a code point is used with,
@@ -104,4 +105,10 @@ const every_script = std.enums.values(Script);
 
 fn single(s: Script) []const Script {
     return every_script[@backingInt(s)..][0..1];
+}
+
+/// A generated table's entry as the property value it stands for, checked
+/// in every build: an entry that names no value is a broken table.
+fn entry(comptime E: type, value: anytype) E {
+    return std.enums.fromInt(E, value) orelse aegis.assert.never("a generated table entry names a value of its property");
 }

@@ -8,6 +8,7 @@
 //! `write` writes them as UTF-8; the simple mappings are one lookup each.
 //! Ill-formed UTF-8 reads as U+FFFD, as everywhere in xenoglyph.
 const std = @import("std");
+const aegis = @import("aegis");
 const classes = @import("classes.zig");
 const data = @import("data.zig");
 const utf8 = @import("utf8.zig");
@@ -47,7 +48,7 @@ fn record(cp: u21) classes.Case {
 }
 
 fn shifted(cp: u21, delta: i24) u21 {
-    return @intCast(@as(i32, cp) + delta);
+    return aegis.int.narrow(u21, @as(i32, cp) + delta) orelse aegis.assert.never("a case mapping gives a code point");
 }
 
 /// The simple lowercase mapping (UnicodeData.txt).
@@ -179,7 +180,7 @@ pub fn Iterator(comptime mapping: Mapping) type {
                 const d = utf8.decode(it.bytes[it.at..]);
                 const after = it.at + d.len;
                 if (mapping == .title and it.at >= it.word_end) {
-                    it.word_end = word.boundaryAfter(it.bytes, it.at);
+                    it.word_end = word.boundaryAfter(it.bytes, .fromRaw(it.at)).raw();
                     it.titled = false;
                 }
                 const r = record(d.code_point);
@@ -206,7 +207,7 @@ pub fn Iterator(comptime mapping: Mapping) type {
 
         fn emit(it: *Self, cps: []const u21) void {
             @memcpy(it.out[0..cps.len], cps);
-            it.len = @intCast(cps.len);
+            it.len = aegis.int.narrow(u8, cps.len) orelse aegis.assert.never("a full mapping is at most three code points");
         }
 
         fn map(it: *Self, m: Mapping, cp: u21, r: classes.Case, after: usize) void {

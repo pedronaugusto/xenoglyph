@@ -3,7 +3,7 @@
 //! into 64 KiB, cut at a code point boundary.
 const std = @import("std");
 
-pub const size = 64 * 1024;
+pub const size: usize = 64 * 1024;
 
 pub const Kind = enum { ascii, latin, cjk, devanagari, emoji, mixed };
 

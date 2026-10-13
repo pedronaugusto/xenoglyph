@@ -7,6 +7,7 @@ const grapheme = @import("../grapheme.zig");
 const word = @import("../word.zig");
 const sentence = @import("../sentence.zig");
 const width = @import("../width.zig");
+const xenoglyph_domains = @import("../domains.zig");
 const breaking = @import("../line.zig");
 const properties = @import("../properties.zig");
 
@@ -63,9 +64,9 @@ fn expectSegments(c: *const Case, it: anytype, line: usize) !void {
     defer got.deinit(std.testing.allocator);
     var start: usize = 0;
     while (it.nextSpan()) |span| {
-        if (span.start != start or span.end <= span.start) return error.TestUnexpectedResult;
-        try got.append(std.testing.allocator, span.end);
-        start = span.end;
+        if (!span.start.eql(.fromRaw(start)) or span.end.compare(span.start) != .gt) return error.TestUnexpectedResult;
+        try got.append(std.testing.allocator, span.end.raw());
+        start = span.end.raw();
     }
     std.testing.expectEqualSlices(usize, want.items, got.items) catch |err| {
         std.debug.print("line {d}: {s}\n", .{ line, c.bytes() });
@@ -171,14 +172,16 @@ test "emoji-test.txt: every sequence is one cluster, and a qualified one two col
         var codes = std.mem.tokenizeScalar(u8, line[0..semicolon], ' ');
         while (codes.next()) |code| len += try std.unicode.utf8Encode(try std.fmt.parseInt(u21, code, 16), text[len..]);
         const s = text[0..len];
-        if (grapheme.count(s, .{}) != 1 or grapheme.count(s, .{ .modifiers = .after_base }) != 1) {
-            std.debug.print("{s}: {d} clusters\n", .{ line, grapheme.count(s, .{}) });
+        const one: xenoglyph_domains.Clusters = .fromRaw(1);
+        if (!grapheme.count(s, .{}).eql(one) or !grapheme.count(s, .{ .modifiers = .after_base }).eql(one)) {
+            std.debug.print("{s}: {d} clusters\n", .{ line, grapheme.count(s, .{}).raw() });
             return error.TestUnexpectedResult;
         }
         sequences += 1;
         if (std.mem.eql(u8, status, "fully-qualified") or std.mem.eql(u8, status, "component")) {
-            if (width.cluster(s, .{}) != 2 or width.string(s, .{}) != 2) {
-                std.debug.print("{s}: {d} columns\n", .{ line, width.cluster(s, .{}) });
+            const two: xenoglyph_domains.Columns = .fromRaw(2);
+            if (!width.cluster(s, .{}).eql(two) or !width.string(s, .{}).eql(two)) {
+                std.debug.print("{s}: {d} columns\n", .{ line, width.cluster(s, .{}).raw() });
                 return error.TestUnexpectedResult;
             }
             wide += 1;

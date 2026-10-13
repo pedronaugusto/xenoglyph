@@ -14,29 +14,35 @@ const grapheme = @import("grapheme.zig");
 
 const WordBreak = properties.WordBreak;
 pub const Span = grapheme.Span;
+pub const Bytes = @import("domains.zig").Bytes;
 
 /// The words and the runs between them of a string, in order.
 pub const Iterator = struct {
     bytes: []const u8,
-    /// Where the next segment starts.
-    index: usize = 0,
+    /// Private: where the next segment starts; `offset` reads it.
+    at: usize = 0,
 
     pub fn init(bytes: []const u8) Iterator {
         return .{ .bytes = bytes };
     }
 
+    /// Where the next segment starts.
+    pub fn offset(it: *const Iterator) Bytes {
+        return .fromRaw(it.at);
+    }
+
     /// The next segment, or null at the end.
     pub fn next(it: *Iterator) ?[]const u8 {
         const s = it.nextSpan() orelse return null;
-        return it.bytes[s.start..s.end];
+        return s.of(it.bytes);
     }
 
     /// The next segment's byte range, or null at the end.
     pub fn nextSpan(it: *Iterator) ?Span {
-        if (it.index >= it.bytes.len) return null;
-        const start = it.index;
-        it.index = boundaryAfter(it.bytes, start);
-        return .{ .start = start, .end = it.index };
+        if (it.at >= it.bytes.len) return null;
+        const start = it.at;
+        it.at = endOf(it.bytes, start);
+        return .{ .start = .fromRaw(start), .end = .fromRaw(it.at) };
     }
 };
 
@@ -60,6 +66,7 @@ pub fn isWordLike(segment: []const u8) bool {
 const Next = struct { class: WordBreak, code_point: u21, len: u3 };
 
 const ascii: [128]WordBreak = blk: {
+    @setEvalBranchQuota(100_000);
     var classes: [128]WordBreak = undefined;
     for (&classes, 0..) |*c, cp| c.* = properties.wordBreak(cp);
     break :blk classes;
@@ -96,8 +103,13 @@ fn effectiveFrom(bytes: []const u8, at: usize) ?WordBreak {
     return null;
 }
 
-/// The end of the segment that starts at `start`, a boundary.
-pub fn boundaryAfter(bytes: []const u8, start: usize) usize {
+/// The end of the segment that starts at `start`, which must be a boundary
+/// (the start of the text, or the end of an earlier segment).
+pub fn boundaryAfter(bytes: []const u8, start: Bytes) Bytes {
+    return .fromRaw(endOf(bytes, start.raw()));
+}
+
+fn endOf(bytes: []const u8, start: usize) usize {
     const first = classAt(bytes, start);
     var at = start + first.len;
     // The class of the code point before `at`, as written.

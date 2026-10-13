@@ -6,6 +6,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const module = b.addModule("xenoglyph", .{ .root_source_file = b.path("src/xenoglyph.zig"), .target = target, .optimize = optimize });
+    module.addImport("aegis", b.dependency("aegis", .{ .target = target, .optimize = optimize }).module("aegis"));
     b.installArtifact(b.addLibrary(.{ .name = "xenoglyph", .root_module = module }));
 }
 
@@ -19,6 +20,7 @@ pub fn dev(b: *std.Build, tools: type) void {
     const p = package.builder;
     const module = package.module("xenoglyph");
     const library = package.artifact("xenoglyph");
+    const aegis_dependency = p.dependency("aegis", .{ .target = target, .optimize = optimize });
 
     // The generator runs on the build host, built optimized: it reads the
     // whole UCD on every check. It targets the host's baseline CPU, as the
@@ -58,6 +60,7 @@ pub fn dev(b: *std.Build, tools: type) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "ucd", .module = ucd },
+                .{ .name = "aegis", .module = aegis_dependency.module("aegis") },
                 .{ .name = "shakedown", .module = shakedown.module("shakedown") },
             },
         }),
@@ -110,7 +113,7 @@ pub fn dev(b: *std.Build, tools: type) void {
     });
     // A project that depends on xenoglyph by path, with no packages to
     // fetch: the build a consumer gets.
-    tools.preflight.addConsumerCheck(b, p, .{ .package = "xenoglyph", .program = p.path("ci/consumer.zig"), .modules = &.{"xenoglyph"} });
+    tools.preflight.addConsumerCheck(b, p, .{ .package = "xenoglyph", .program = p.path("ci/consumer.zig"), .packages = &.{aegis_dependency}, .modules = &.{"xenoglyph"} });
 }
 
 /// xenoglyph again, in the mode a benchmark builds in: an imported module
@@ -123,5 +126,6 @@ fn benchImports(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.l
 
 fn xenoglyphModule(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.lang.Optimize) *std.Build.Module {
     const p = b.dependency("xenoglyph", .{ .target = target, .optimize = optimize }).builder;
-    return b.createModule(.{ .root_source_file = p.path("src/xenoglyph.zig"), .target = target, .optimize = optimize });
+    const aegis = p.dependency("aegis", .{ .target = target, .optimize = optimize }).module("aegis");
+    return b.createModule(.{ .root_source_file = p.path("src/xenoglyph.zig"), .target = target, .optimize = optimize, .imports = &.{.{ .name = "aegis", .module = aegis }} });
 }

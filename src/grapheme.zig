@@ -10,6 +10,7 @@
 const std = @import("std");
 const classes = @import("classes.zig");
 const records = @import("records.zig");
+const domains = @import("domains.zig");
 
 const Cluster = classes.Cluster;
 
@@ -47,14 +48,7 @@ pub const Rules = struct {
 };
 
 /// A byte range of the text an iterator walks.
-pub const Span = struct {
-    start: usize,
-    end: usize,
-
-    pub fn len(s: Span) usize {
-        return s.end - s.start;
-    }
-};
+pub const Span = domains.Span;
 
 /// What the rules read of a code point: its Grapheme_Cluster_Break and
 /// the properties GB9c, GB11 and the modifier tailoring look at.
@@ -243,8 +237,8 @@ pub fn Iterator(comptime rules: Rules) type {
         const Self = @This();
 
         bytes: []const u8,
-        /// Where the next cluster starts.
-        index: usize = 0,
+        /// Private: where the next cluster starts; `offset` reads it.
+        at: usize = 0,
         /// Private: the rules' context, past the first code point of the
         /// next cluster when `pending` holds its length.
         breaker: Breaker(rules) = .{},
@@ -256,16 +250,21 @@ pub fn Iterator(comptime rules: Rules) type {
             return .{ .bytes = bytes };
         }
 
+        /// Where the next cluster starts.
+        pub fn offset(it: *const Self) domains.Bytes {
+            return .fromRaw(it.at);
+        }
+
         /// The next cluster, or null at the end.
         pub fn next(it: *Self) ?[]const u8 {
             const s = it.nextSpan() orelse return null;
-            return it.bytes[s.start..s.end];
+            return s.of(it.bytes);
         }
 
         /// The next cluster's byte range, or null at the end.
         pub fn nextSpan(it: *Self) ?Span {
             const bytes = it.bytes;
-            const start = it.index;
+            const start = it.at;
             if (start >= bytes.len) return null;
             // Two ASCII bytes: the first is a cluster of its own, unless CR LF.
             const lead = bytes[start];
@@ -274,8 +273,8 @@ pub fn Iterator(comptime rules: Rules) type {
             {
                 if (it.pending == 0) it.breaker.afterAscii(lead);
                 it.pending = 0;
-                it.index = start + 1;
-                return .{ .start = start, .end = start + 1 };
+                it.at = start + 1;
+                return .{ .start = .fromRaw(start), .end = .fromRaw(start + 1) };
             }
             var at = start;
             if (it.pending != 0) {
@@ -294,8 +293,8 @@ pub fn Iterator(comptime rules: Rules) type {
                 }
                 at += n.len;
             }
-            it.index = at;
-            return .{ .start = start, .end = at };
+            it.at = at;
+            return .{ .start = .fromRaw(start), .end = .fromRaw(at) };
         }
     };
 }
@@ -306,11 +305,11 @@ pub fn iterate(bytes: []const u8) Iterator(.{}) {
 }
 
 /// How many clusters `bytes` holds by `rules`.
-pub fn count(bytes: []const u8, comptime rules: Rules) usize {
+pub fn count(bytes: []const u8, comptime rules: Rules) domains.Clusters {
     var it: Iterator(rules) = .init(bytes);
     var n: usize = 0;
     while (it.nextSpan()) |_| n += 1;
-    return n;
+    return .fromRaw(n);
 }
 
 test "clusters of a mixed string" {
@@ -323,13 +322,13 @@ test "clusters of a mixed string" {
 
 test "tailorings" {
     // A modifier after a letter: joined by UAX #29, apart under UTS #51.
-    try std.testing.expectEqual(1, count("a\u{1f3fb}", .{}));
-    try std.testing.expectEqual(2, count("a\u{1f3fb}", .{ .modifiers = .after_base }));
-    try std.testing.expectEqual(1, count("\u{1f44d}\u{1f3fb}", .{ .modifiers = .after_base }));
+    try std.testing.expectEqual(1, count("a\u{1f3fb}", .{}).raw());
+    try std.testing.expectEqual(2, count("a\u{1f3fb}", .{ .modifiers = .after_base }).raw());
+    try std.testing.expectEqual(1, count("\u{1f44d}\u{1f3fb}", .{ .modifiers = .after_base }).raw());
     // A swatch continues no Indic conjunct: linker, swatch, consonant.
-    try std.testing.expectEqual(1, count("\u{94d}\u{1f3fb}\u{915}", .{}));
-    try std.testing.expectEqual(3, count("\u{94d}\u{1f3fb}\u{915}", .{ .modifiers = .after_base }));
+    try std.testing.expectEqual(1, count("\u{94d}\u{1f3fb}\u{915}", .{}).raw());
+    try std.testing.expectEqual(3, count("\u{94d}\u{1f3fb}\u{915}", .{ .modifiers = .after_base }).raw());
     // A mark after a control: apart by GB5, joined when controls are Other.
-    try std.testing.expectEqual(2, count("\t\u{301}", .{}));
-    try std.testing.expectEqual(1, count("\t\u{301}", .{ .controls = .as_other }));
+    try std.testing.expectEqual(2, count("\t\u{301}", .{}).raw());
+    try std.testing.expectEqual(1, count("\t\u{301}", .{ .controls = .as_other }).raw());
 }

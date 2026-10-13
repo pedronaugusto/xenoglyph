@@ -47,6 +47,10 @@ const std = @import("std");
 const classes = @import("classes.zig");
 const grapheme = @import("grapheme.zig");
 const records = @import("records.zig");
+const domains = @import("domains.zig");
+
+/// A number of terminal columns.
+pub const Columns = domains.Columns;
 
 const Cluster = classes.Cluster;
 
@@ -68,8 +72,8 @@ inline fn columnsOf(record: Cluster, comptime options: Options) u2 {
 }
 
 /// The columns of one code point standing alone, by the rules above.
-pub fn codepoint(cp: u21, comptime options: Options) u2 {
-    return columnsOf(records.cluster(cp), options);
+pub fn codepoint(cp: u21, comptime options: Options) Columns {
+    return .fromRaw(columnsOf(records.cluster(cp), options));
 }
 
 /// One cluster's width as it grows: give it each of the cluster's code
@@ -107,8 +111,8 @@ const Measure = struct {
 
 /// The columns of `bytes` taken as one grapheme cluster, whatever its
 /// boundaries: 0, 1 or 2. Empty is 0.
-pub fn cluster(bytes: []const u8, comptime options: Options) u2 {
-    if (bytes.len == 0) return 0;
+pub fn cluster(bytes: []const u8, comptime options: Options) Columns {
+    if (bytes.len == 0) return .fromRaw(0);
     const first = records.read(bytes);
     var m: Measure = .start(first.index, options);
     var at: usize = first.len;
@@ -117,12 +121,12 @@ pub fn cluster(bytes: []const u8, comptime options: Options) u2 {
         m.add(n.code_point, n.index, options);
         at += n.len;
     }
-    return m.columns;
+    return .fromRaw(m.columns);
 }
 
 /// The columns of a string: the sum of its clusters' by `options.rules`,
 /// or of its code points' with `.method = .codepoint`.
-pub fn string(bytes: []const u8, comptime options: Options) usize {
+pub fn string(bytes: []const u8, comptime options: Options) Columns {
     var total: usize = 0;
     var at: usize = 0;
     // Printable ASCII is a column a byte by either method, and a cluster of
@@ -134,7 +138,7 @@ pub fn string(bytes: []const u8, comptime options: Options) usize {
         total += 1;
         at += 1;
     }
-    if (at == bytes.len) return total;
+    if (at == bytes.len) return .fromRaw(total);
     switch (options.method) {
         .codepoint => {
             while (at < bytes.len) {
@@ -175,27 +179,27 @@ pub fn string(bytes: []const u8, comptime options: Options) usize {
             total += m.columns;
         },
     }
-    return total;
+    return .fromRaw(total);
 }
 
 test "the model's examples" {
     const t = std.testing;
-    try t.expectEqual(2, cluster("\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}", .{}));
-    try t.expectEqual(2, cluster("\u{1f1fa}\u{1f1f8}", .{}));
-    try t.expectEqual(2, cluster("1\u{fe0f}\u{20e3}", .{}));
-    try t.expectEqual(2, cluster("\u{1f44b}\u{1f3fd}", .{}));
-    try t.expectEqual(1, cluster("e\u{301}", .{}));
-    try t.expectEqual(2, cluster("\u{915}\u{94d}\u{937}", .{}));
-    try t.expectEqual(1, cluster("\u{2601}\u{fe0e}", .{}));
-    try t.expectEqual(2, cluster("\u{2601}\u{fe0f}", .{}));
-    try t.expectEqual(1, cluster("V\u{fe0f}", .{}));
-    try t.expectEqual(2, codepoint(0x4e00, .{}));
-    try t.expectEqual(1, codepoint(0xa1, .{}));
-    try t.expectEqual(2, codepoint(0xa1, .{ .ambiguous = .wide }));
-    try t.expectEqual(0, codepoint(0x200b, .{}));
-    try t.expectEqual(1, codepoint(0xad, .{}));
-    try t.expectEqual(5, string("hello", .{}));
-    try t.expectEqual(3, string("a\u{1f3fb}", .{}));
-    try t.expectEqual(2, string("a\u{1f3fb}", .{ .rules = .{} }));
-    try t.expectEqual(6, string("日本語", .{}));
+    try t.expectEqual(2, cluster("\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}", .{}).raw());
+    try t.expectEqual(2, cluster("\u{1f1fa}\u{1f1f8}", .{}).raw());
+    try t.expectEqual(2, cluster("1\u{fe0f}\u{20e3}", .{}).raw());
+    try t.expectEqual(2, cluster("\u{1f44b}\u{1f3fd}", .{}).raw());
+    try t.expectEqual(1, cluster("e\u{301}", .{}).raw());
+    try t.expectEqual(2, cluster("\u{915}\u{94d}\u{937}", .{}).raw());
+    try t.expectEqual(1, cluster("\u{2601}\u{fe0e}", .{}).raw());
+    try t.expectEqual(2, cluster("\u{2601}\u{fe0f}", .{}).raw());
+    try t.expectEqual(1, cluster("V\u{fe0f}", .{}).raw());
+    try t.expectEqual(2, codepoint(0x4e00, .{}).raw());
+    try t.expectEqual(1, codepoint(0xa1, .{}).raw());
+    try t.expectEqual(2, codepoint(0xa1, .{ .ambiguous = .wide }).raw());
+    try t.expectEqual(0, codepoint(0x200b, .{}).raw());
+    try t.expectEqual(1, codepoint(0xad, .{}).raw());
+    try t.expectEqual(5, string("hello", .{}).raw());
+    try t.expectEqual(3, string("a\u{1f3fb}", .{}).raw());
+    try t.expectEqual(2, string("a\u{1f3fb}", .{ .rules = .{} }).raw());
+    try t.expectEqual(6, string("日本語", .{}).raw());
 }

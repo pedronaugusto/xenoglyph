@@ -14,9 +14,10 @@ Work in progress.
 Requires Zig 0.17.0. Fetch with `zig fetch --save
 git+https://github.com/pedronaugusto/xenoglyph`, then obtain the `xenoglyph`
 module through `b.dependency` and add it to your executable's imports.
-xenoglyph has no dependencies: a project that depends on it fetches it alone,
-and builds no generator and reads no Unicode data files. The tables are Zig
-source in the package.
+xenoglyph depends on the std-only [aegis](https://github.com/pedronaugusto/aegis)
+safety library, and on nothing else: a project that depends on it builds no
+generator and reads no Unicode data files. The tables are Zig source in the
+package.
 
 ## Usage
 
@@ -38,7 +39,7 @@ while (clusters.next()) |cluster| {
 }
 std.debug.assert(count == 4);
 // Terminal columns: each of the four is 2, 2, 1 and 2, and a space 1.
-std.debug.assert(xenoglyph.width.string(text, .{}) == 10);
+std.debug.assert(xenoglyph.width.string(text, .{}).eql(.fromRaw(10)));
 ```
 <!-- END GENERATED -->
 
@@ -96,7 +97,7 @@ var it = xenoglyph.lines(text);
 // holds together, and the line feed ends a line whatever the width.
 for ([_][]const u8{ "A ", "(quick) ", "test", "\u{2014}", "costs ", "$12.50.\n" }) |want| {
     const b = it.nextBreak().?;
-    std.debug.assert(std.mem.eql(u8, text[b.span.start..b.span.end], want));
+    std.debug.assert(std.mem.eql(u8, b.span.of(text), want));
     std.debug.assert(b.mandatory == (want[want.len - 1] == '\n'));
 }
 ```
@@ -288,11 +289,18 @@ costs the first, 34 KB.
 
 ## API
 
+Byte offsets and lengths, terminal columns and cluster counts are distinct
+aegis domains: `Bytes` (`aegis.units.Bytes(usize)`), `Columns` and `Clusters`
+(`aegis.units.Count` of their own domains). One is never taken for another,
+none for a code point (a `u21`), and reading the number out is an explicit
+`.raw()`. A `Span` holds two `Bytes`; `span.of(text)` is the part of the text
+it covers. Every iterator's `offset()` is where its next segment starts.
+
 | Call | Does |
 |---|---|
 | `graphemes(text)`, `grapheme.Iterator(rules)` | The clusters of a string: `next()` a slice, `nextSpan()` a byte range |
 | `grapheme.Breaker(rules)` | `next(cp)`: whether a code point starts a cluster, for text that arrives a code point at a time |
-| `grapheme.count(text, rules)` | How many clusters a string holds |
+| `grapheme.count(text, rules)` | How many clusters a string holds, as `Clusters` |
 | `words(text)`, `word.isWordLike(segment)` | Words and the runs between them; whether a segment is a word |
 | `sentences(text)` | Sentences |
 | `lines(text)`, `line.Iterator.nextBreak()` | Line break opportunities, each with whether the break is mandatory |
@@ -302,9 +310,10 @@ costs the first, 34 KB.
 | `case.write(mapping, text, writer, options)`, `case.Iterator(mapping)` | Lowercase, uppercase, titlecase or full case folding of a text |
 | `case.equalFold(a, b, options)` | Whether two texts match caselessly |
 | `case.simpleLower`, `simpleUpper`, `simpleTitle`, `simpleFold` | The simple, one-to-one mappings of a code point |
-| `width.string(text, options)` | A string's terminal columns |
+| `width.string(text, options)` | A string's terminal columns, as `Columns` |
 | `width.cluster(bytes, options)` | One cluster's columns, 0 to 2 |
 | `width.codepoint(cp, options)` | One code point's columns, 0 to 2 |
+| `word.boundaryAfter(text, start)`, `sentence.boundaryAfter(text, start)` | Where the segment that starts at a boundary ends |
 | `generalCategory`, `script`, `scriptExtensions`, `eastAsianWidth` | General_Category, Script, Script_Extensions (sorted), East_Asian_Width |
 | `graphemeBreak`, `indicConjunctBreak`, `wordBreak`, `sentenceBreak`, `lineBreak` | The break classes of UAX #29 and UAX #14 |
 | `emoji(cp)` | Emoji, Emoji_Presentation, Emoji_Modifier, Emoji_Modifier_Base, Emoji_Component, Extended_Pictographic, and whether it has emoji variation sequences |
@@ -342,6 +351,9 @@ them all for wasm32-freestanding.
 ## Built with
 
 - [Zig](https://ziglang.org) 0.17.0 and its standard library; nothing is linked.
+- [aegis](https://github.com/pedronaugusto/aegis), whose runtime is std only:
+  the byte, column and cluster domains, and the checks that stop on a broken
+  table entry in every build mode.
 - The [Unicode Character Database](https://www.unicode.org/ucd/) 18.0.0, whose
   data are under the Unicode License v3.
 - [bay](https://github.com/pedronaugusto/bay) runs xenoglyph's development.
@@ -387,7 +399,9 @@ text with runs of up to a hundred marks are what a plain allocating
 implementation gives; folding, lowercasing and uppercasing are idempotent in
 every language tailoring. They run on seeded
 inputs in every `bay test`, and under `bay test --fuzz` they search further.
-Nothing here can allocate: no call takes an allocator.
+Nothing here can allocate: no call takes an allocator. The source checks gate
+glint's aegis rules A001 to A004: no raw arithmetic or cast on a domain value
+outside an explicit `.raw()` boundary.
 
 `bay bench` times segmentation, line breaking, width, normalization and case
 mapping over 64 KiB texts of ASCII, accented

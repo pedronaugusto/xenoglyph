@@ -4,7 +4,8 @@ const std = @import("std");
 const xenoglyph = @import("xenoglyph");
 
 export fn xenoglyphGraphemes(text: [*]const u8, len: usize) usize {
-    return xenoglyph.grapheme.count(text[0..len], .{}) + xenoglyph.grapheme.count(text[0..len], .terminal);
+    const both = xenoglyph.grapheme.count(text[0..len], .{}).add(xenoglyph.grapheme.count(text[0..len], .terminal)) catch return 0;
+    return both.raw();
 }
 
 export fn xenoglyphWords(text: [*]const u8, len: usize) usize {
@@ -22,7 +23,8 @@ export fn xenoglyphSentences(text: [*]const u8, len: usize) usize {
 }
 
 export fn xenoglyphWidth(text: [*]const u8, len: usize) usize {
-    return xenoglyph.width.string(text[0..len], .{}) + xenoglyph.width.string(text[0..len], .{ .method = .codepoint, .ambiguous = .wide });
+    const both = xenoglyph.width.string(text[0..len], .{}).add(xenoglyph.width.string(text[0..len], .{ .method = .codepoint, .ambiguous = .wide })) catch return 0;
+    return both.raw();
 }
 
 export fn xenoglyphStream(cp: u32) bool {
@@ -42,8 +44,11 @@ export fn xenoglyphProperties(cp: u32) u32 {
         @backingInt(xenoglyph.script(c)) +
         @as(u8, @bitCast(xenoglyph.emoji(c))) +
         @as(u32, @bitCast(xenoglyph.core(c))) +
-        @as(u32, @intCast(xenoglyph.scriptExtensions(c).len)) +
-        xenoglyph.width.codepoint(c, .{});
+        @as(u32, @intCast(xenoglyph.scriptExtensions(c).len));
+}
+
+export fn xenoglyphColumns(cp: u32) usize {
+    return xenoglyph.width.codepoint(@truncate(cp), .{}).raw();
 }
 
 export fn xenoglyphLines(text: [*]const u8, len: usize) usize {

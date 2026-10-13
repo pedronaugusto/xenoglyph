@@ -2,6 +2,7 @@
 //! (UAX #29), terminal cell widths, and character properties, from the
 //! Unicode Character Database 18.0.0. Nothing allocates.
 const std = @import("std");
+const domains = @import("domains.zig");
 
 pub const utf8 = @import("utf8.zig");
 pub const grapheme = @import("grapheme.zig");
@@ -12,6 +13,15 @@ pub const line = @import("line.zig");
 pub const normalize = @import("normalize.zig");
 pub const case = @import("case.zig");
 pub const properties = @import("properties.zig");
+
+/// A number of bytes: a length, or an offset into a text.
+pub const Bytes = domains.Bytes;
+/// A byte range of a text.
+pub const Span = domains.Span;
+/// A number of terminal columns.
+pub const Columns = domains.Columns;
+/// A number of grapheme clusters.
+pub const Clusters = domains.Clusters;
 
 pub const unicode_version = properties.unicode_version;
 

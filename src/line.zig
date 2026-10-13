@@ -15,6 +15,7 @@ const classes = @import("classes.zig");
 const records = @import("records.zig");
 const utf8 = @import("utf8.zig");
 const grapheme = @import("grapheme.zig");
+const domains = @import("domains.zig");
 
 const Class = classes.LineBreak;
 const Line = classes.Line;
@@ -294,8 +295,8 @@ fn attachedEnd(bytes: []const u8, end: usize, r: Item) usize {
 /// where a line may break.
 pub const Iterator = struct {
     bytes: []const u8,
-    /// Where the next segment starts.
-    index: usize = 0,
+    /// Private: where the next segment starts; `offset` reads it.
+    start: usize = 0,
     /// Private: where the next undecided code point starts.
     at: usize = 0,
     /// Private: the context behind `at`.
@@ -305,10 +306,15 @@ pub const Iterator = struct {
         return .{ .bytes = bytes };
     }
 
+    /// Where the next segment starts.
+    pub fn offset(it: *const Iterator) domains.Bytes {
+        return .fromRaw(it.start);
+    }
+
     /// The next segment, or null at the end.
     pub fn next(it: *Iterator) ?[]const u8 {
         const b = it.nextBreak() orelse return null;
-        return it.bytes[b.span.start..b.span.end];
+        return b.span.of(it.bytes);
     }
 
     /// The next segment's byte range, or null at the end.
@@ -321,7 +327,7 @@ pub const Iterator = struct {
     /// the end.
     pub fn nextBreak(it: *Iterator) ?Break {
         const bytes = it.bytes;
-        const start = it.index;
+        const start = it.start;
         if (start >= bytes.len) return null;
         while (it.at < bytes.len) {
             const at = it.at;
@@ -330,12 +336,12 @@ pub const Iterator = struct {
             it.behind.push(n.record);
             it.at = at + n.len;
             if (decision != .prohibited and at > start) {
-                it.index = at;
-                return .{ .span = .{ .start = start, .end = at }, .mandatory = decision == .mandatory };
+                it.start = at;
+                return .{ .span = .{ .start = .fromRaw(start), .end = .fromRaw(at) }, .mandatory = decision == .mandatory };
             }
         }
-        it.index = bytes.len;
-        return .{ .span = .{ .start = start, .end = bytes.len }, .mandatory = hard(it.behind.raw) };
+        it.start = bytes.len;
+        return .{ .span = .{ .start = .fromRaw(start), .end = .fromRaw(bytes.len) }, .mandatory = hard(it.behind.raw) };
     }
 };
 

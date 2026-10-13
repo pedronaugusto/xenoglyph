@@ -320,14 +320,14 @@ fn lineDecision(written: []const classes.Line, items: []const LineItem, item_of:
     }
     if (p == .zwj) return .prohibited; // LB8a
     if (item_of[i] == item_of[i - 1]) return .prohibited; // LB9
-    const at = item_of[i];
+    const at: usize = item_of[i];
     const r = items[at].line;
     const left = items[at - 1].line;
     const prior: ?classes.Line = if (at >= 2) items[at - 2].line else null;
     const next: ?classes.Line = if (at + 1 < items.len) items[at + 1].line else null;
     const second: ?classes.Line = if (at + 2 < items.len) items[at + 2].line else null;
     // Through spaces: the last item before `at` that is not one, and the one before it.
-    var s = at;
+    var s: usize = at;
     while (s > 0 and items[s - 1].line.class == .space) s -= 1;
     const solid: ?classes.Line = if (s > 0) items[s - 1].line else null;
     const before_solid: ?classes.Line = if (s > 1) items[s - 2].line else null;
@@ -369,7 +369,7 @@ fn lineDecision(written: []const classes.Line, items: []const LineItem, item_of:
     if ((l == .prefix_numeric and is.one(rc, &.{ .ideographic, .e_base, .e_modifier })) or (is.one(l, &.{ .ideographic, .e_base, .e_modifier }) and rc == .postfix_numeric)) return .prohibited; // LB23a
     if ((is.one(l, &.{ .prefix_numeric, .postfix_numeric }) and is.one(rc, &letters)) or (is.one(l, &letters) and is.one(rc, &.{ .prefix_numeric, .postfix_numeric }))) return .prohibited; // LB24
     { // LB25: NU (SY | IS)* (CL | CP)? × (PO | PR), NU (SY | IS)* × NU
-        var k = at;
+        var k: usize = at;
         var closed = false;
         if (k > 0 and is.one(items[k - 1].line.class, &.{ .close_punctuation, .close_parenthesis })) {
             k -= 1;
@@ -406,7 +406,7 @@ fn lineDecision(written: []const classes.Line, items: []const LineItem, item_of:
     if (l == .close_parenthesis and !left.east_asian and is.one(rc, &.{ .alphabetic, .hebrew_letter, .numeric })) return .prohibited;
     if (l == .regional_indicator and rc == .regional_indicator) { // LB30a
         var run: usize = 0;
-        var k = at;
+        var k: usize = at;
         while (k > 0 and items[k - 1].line.class == .regional_indicator) : (k -= 1) run += 1;
         if (run % 2 == 1) return .prohibited;
     }

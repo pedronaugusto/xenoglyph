@@ -1,5 +1,6 @@
 test {
     _ = @import("xenoglyph.zig");
+    _ = @import("domains.zig");
     _ = @import("grapheme.zig");
     _ = @import("word.zig");
     _ = @import("sentence.zig");

@@ -5,6 +5,7 @@
 //! by not continuing it is where the next code point starts, so
 //! `"\xe4\xb8a"` is U+FFFD then `a`.
 const std = @import("std");
+const domains = @import("domains.zig");
 
 /// U+FFFD REPLACEMENT CHARACTER, what an ill-formed subpart decodes to.
 pub const replacement: u21 = 0xfffd;
@@ -76,11 +77,16 @@ fn decodeMultibyte(bytes: []const u8) Decoded {
 /// The code points of a string, decoded as `decode` does.
 pub const Iterator = struct {
     bytes: []const u8,
-    /// Where the next code point starts.
+    /// Private: where the next code point starts; `offset` reads it.
     index: usize = 0,
 
     pub fn init(bytes: []const u8) Iterator {
         return .{ .bytes = bytes };
+    }
+
+    /// Where the next code point starts.
+    pub fn offset(it: *const Iterator) domains.Bytes {
+        return .fromRaw(it.index);
     }
 
     /// The next code point, or null at the end.
