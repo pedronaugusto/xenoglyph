@@ -136,3 +136,52 @@ test "the Changes_When properties are what the mappings do to each code point's 
         try std.testing.expectEqual(core.changes_when_casemapped, mapped_any);
     }
 }
+
+test "a non-starter maps to its own class or to nothing, but U+0345, which the caseless matches hold to the end of its run" {
+    // What `case.equal` relies on to order once where the definitions order
+    // twice: every non-starter the matches' mappings give a starter (or any
+    // other class) maps that way alike and has the highest combining class.
+    var highest: u8 = 0;
+    for (0..0x110000) |i| highest = @max(highest, normalize.combiningClass(@intCast(i)));
+    var exceptions: usize = 0;
+    for (0..0x110000) |i| {
+        if (i >= 0xd800 and i <= 0xdfff) continue;
+        const cp: u21 = @intCast(i);
+        const class = normalize.combiningClass(cp);
+        if (class == 0) continue;
+        var buffer: [18]u21 = undefined;
+        // Only code points that are their own NFD reach the mapping.
+        if (!std.mem.eql(u21, normalize.decompose(cp, .nfd, &buffer), &.{cp})) continue;
+        inline for (.{ .none, .turkic }) |language| {
+            var bytes: [4]u8 = undefined;
+            const s = bytes[0 .. std.unicode.utf8Encode(cp, &bytes) catch unreachable]; // unreachable: surrogates skipped
+            var folded_cps: [8]u21 = undefined;
+            var it: case.Iterator(.fold) = .init(s, .{ .language = language });
+            var n: usize = 0;
+            while (it.next()) |f| : (n += 1) folded_cps[n] = f;
+            var images: [2][18]u21 = undefined;
+            var lens: [2]usize = .{ 0, 0 };
+            for (folded_cps[0..n]) |f| {
+                var d: [18]u21 = undefined;
+                const part = normalize.decompose(f, .nfd, &d);
+                @memcpy(images[0][lens[0]..][0..part.len], part);
+                lens[0] += part.len;
+            }
+            lens[1] = normalize.decompose(cp, .nfkc_casefold, &images[1]).len;
+            for (images, lens) |image, len| {
+                var same = true;
+                for (image[0..len]) |m| same = same and normalize.combiningClass(m) == class;
+                if (same) continue;
+                exceptions += 1;
+                try std.testing.expectEqual(0x345, cp);
+                try std.testing.expectEqual(highest, class);
+                try std.testing.expectEqualSlices(u21, &.{0x3b9}, image[0..len]);
+            }
+        }
+    }
+    try std.testing.expect(exceptions > 0);
+    // And U+0345 is the only code point of that class.
+    var top: usize = 0;
+    for (0..0x110000) |i| top += @intFromBool(normalize.combiningClass(@intCast(i)) == highest);
+    try std.testing.expectEqual(1, top);
+}

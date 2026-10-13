@@ -11,7 +11,8 @@ pub fn main() !void {
     var words = xenoglyph.words("one two");
     if (!std.mem.eql(u8, words.next().?, "one")) return error.Words;
     if (!xenoglyph.normalize.equal(.nfc, "\u{e9}", "e\u{301}")) return error.Normalization;
-    if (!xenoglyph.case.equalFold("A", "a", .{})) return error.Case;
+    if (!xenoglyph.case.equal(.identifier, "A", "a", .{})) return error.Case;
+    if (!xenoglyph.grapheme.boundaryBefore("e\u{301}", .fromRaw(3), .{}).eql(.fromRaw(0))) return error.Graphemes;
     var lines = xenoglyph.lines("a b");
     if (!std.mem.eql(u8, lines.next().?, "a ")) return error.Lines;
 }

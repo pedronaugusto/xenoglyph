@@ -7,10 +7,13 @@
 //! compile time (`Automaton`). `Breaker` runs it over a stream of code
 //! points; `Iterator` walks a string with it, decoding as `utf8.decode`
 //! does, so ill-formed bytes are U+FFFD (Grapheme_Cluster_Break Other).
+//! Backward, `Reverse` decides each position from the text before it, read
+//! back only as far as the rule that decides it needs.
 const std = @import("std");
 const classes = @import("classes.zig");
 const records = @import("records.zig");
 const domains = @import("domains.zig");
+const aegis = @import("aegis");
 
 const Cluster = classes.Cluster;
 
@@ -64,6 +67,23 @@ const Class = struct {
     }
 };
 
+/// A code point's class as `rules` read it: Other for a control under
+/// `.as_other`, and Other with no Indic conjunct role for an emoji modifier
+/// under `.after_base` unless it directly follows an Emoji_Modifier_Base
+/// (`after_base`).
+fn tailor(comptime rules: Rules, class: Class, after_base: bool) Class {
+    var n = class;
+    if (rules.controls == .as_other) switch (n.grapheme_break) {
+        .cr, .lf, .control => n.grapheme_break = .other,
+        else => {},
+    };
+    if (rules.modifiers == .after_base and n.modifier and !after_base) {
+        n.grapheme_break = .other;
+        n.conjunct = .none;
+    }
+    return n;
+}
+
 /// The rules, as UAX #29 states them, over the context they need: the
 /// previous code point's class, the parity of a run of regional indicators,
 /// an emoji ZWJ sequence or an Indic linker in progress. The automaton
@@ -83,15 +103,7 @@ fn Context(comptime rules: Rules) type {
 
         /// Whether `class` starts a cluster; the first code point does.
         fn step(ctx: *Self, class: Class) bool {
-            var n = class;
-            if (rules.controls == .as_other) switch (n.grapheme_break) {
-                .cr, .lf, .control => n.grapheme_break = .other,
-                else => {},
-            };
-            if (rules.modifiers == .after_base and n.modifier and !(ctx.started and ctx.previous.modifier_base)) {
-                n.grapheme_break = .other;
-                n.conjunct = .none;
-            }
+            const n = tailor(rules, class, ctx.started and ctx.previous.modifier_base);
             const boundary = !ctx.started or ctx.isBoundary(n);
             ctx.advance(n);
             return boundary;
@@ -194,10 +206,165 @@ fn Automaton(comptime rules: Rules) type {
             break :blk after;
         };
 
+        /// What the pair of code points on either side of a position says
+        /// of it, whatever came before them: a boundary, none, or that it
+        /// depends on more of the text before (GB9c, GB11, GB12 and GB13).
+        pub const Pair = enum(u2) { boundary, joined, context };
+
+        /// `pairs[before][after]`, by record index: for every state the
+        /// rules can be in after `before`, whether `after` starts a cluster,
+        /// when all of them agree.
+        pub const pairs: [all.len][all.len]Pair = blk: {
+            @setEvalBranchQuota(10_000_000);
+            var table: [all.len][all.len]Pair = undefined;
+            for (0..all.len) |before| {
+                var after_before: [states]bool = @splat(false);
+                for (transitions) |row| after_before[row[before] & 0x7f] = true;
+                for (0..all.len) |after| {
+                    var splits = false;
+                    var joins = false;
+                    for (after_before, transitions) |reached, row| if (reached) {
+                        if (row[after] & 0x80 != 0) splits = true else joins = true;
+                    };
+                    table[before][after] = if (!joins) .boundary else if (!splits) .joined else .context;
+                }
+            }
+            break :blk table;
+        };
+
         pub inline fn step(state: *u8, index: u8) bool {
             const t = transitions[state.*][index];
             state.* = t & 0x7f;
             return t & 0x80 != 0;
+        }
+    };
+}
+
+/// The rules read backward: whether a position is a boundary, decided from
+/// the text before it, read only as far back as the rule that decides it
+/// needs. Most positions are decided by the two code points beside them
+/// (`Automaton.pairs`); the rest by the context the rules carry, rebuilt
+/// from the run it depends on: the Indic linker and the InCB=Extend before
+/// it (GB9c), the pictograph and the Extend before a ZWJ (GB11), the run of
+/// regional indicators (GB12, GB13). Each is decided by `Context`, the
+/// rules as the forward automaton is built from them.
+fn Reverse(comptime rules: Rules) type {
+    return struct {
+        const A = Automaton(rules);
+        const Ctx = Context(rules);
+
+        /// A code point read backward: where it starts, and its record.
+        const Back = struct { start: usize, index: u8 };
+
+        fn before(bytes: []const u8, end: usize) Back {
+            const r = records.readBefore(bytes, end);
+            return .{ .start = r.start, .index = r.index };
+        }
+
+        fn raw(c: Back) Class {
+            return Class.of(records.clusterRecord(c.index));
+        }
+
+        fn regional(c: Back) bool {
+            return raw(c).grapheme_break == .regional_indicator;
+        }
+
+        /// The class the rules read of `c`, which for an emoji modifier
+        /// depends on the code point before it.
+        fn tailored(bytes: []const u8, c: Back) Class {
+            const class = raw(c);
+            const after_base = rules.modifiers == .after_base and class.modifier and c.start > 0 and
+                raw(before(bytes, c.start)).modifier_base;
+            return tailor(rules, class, after_base);
+        }
+
+        /// Whether the position between `p` and the code point `c` after it
+        /// is a boundary.
+        fn isBoundary(bytes: []const u8, p: Back, c: Back) bool {
+            return switch (A.pairs[p.index][c.index]) {
+                .boundary => true,
+                .joined => false,
+                .context => contextual(bytes, p, c),
+            };
+        }
+
+        /// The rules' context after `p`, rebuilt from the text before it,
+        /// then the rules' step over `c`.
+        fn contextual(bytes: []const u8, p: Back, c: Back) bool {
+            var ctx: Ctx = .{ .previous = tailored(bytes, p), .started = true };
+            if (ctx.previous.grapheme_break == .regional_indicator) ctx.ri_odd = regionalRunOdd(bytes, p);
+            if (ctx.previous.grapheme_break == .zwj and pictographBefore(bytes, p.start)) ctx.emoji = .joined;
+            ctx.linker = linkerAt(bytes, p);
+            return ctx.step(raw(c));
+        }
+
+        /// Whether the run of regional indicators that ends with `p` is odd.
+        fn regionalRunOdd(bytes: []const u8, p: Back) bool {
+            var odd = true;
+            var at = p.start;
+            while (at > 0) {
+                const b = before(bytes, at);
+                if (!regional(b)) break;
+                odd = !odd;
+                at = b.start;
+            }
+            return odd;
+        }
+
+        /// GB11's context before a ZWJ that starts at `end`: an
+        /// Extended_Pictographic, then Extend only.
+        fn pictographBefore(bytes: []const u8, end: usize) bool {
+            var at = end;
+            while (at > 0) {
+                const b = before(bytes, at);
+                const class = tailored(bytes, b);
+                if (class.extended_pictographic) return true;
+                if (class.grapheme_break != .extend) return false;
+                at = b.start;
+            }
+            return false;
+        }
+
+        /// GB9c's context after `p`: an InCB=Linker, then InCB=Extend only.
+        fn linkerAt(bytes: []const u8, p: Back) bool {
+            var c = p;
+            while (true) {
+                switch (tailored(bytes, c).conjunct) {
+                    .linker => return true,
+                    .extend => {},
+                    .none, .consonant => return false,
+                }
+                if (c.start == 0) return false;
+                c = before(bytes, c.start);
+            }
+        }
+
+        /// The last boundary before `end` (0 < `end` <= `bytes.len`).
+        /// With `at_boundary`, `end` is a boundary itself, which decides a
+        /// run of regional indicators it falls in without counting the run.
+        fn start(bytes: []const u8, end: usize, comptime at_boundary: bool) usize {
+            // Two ASCII code points: a boundary between them, unless CR LF.
+            if (end >= 2 and bytes[end - 1] < 0x80 and bytes[end - 2] < 0x80 and
+                !(rules.controls == .separate and bytes[end - 2] == '\r' and bytes[end - 1] == '\n')) return end - 1;
+            var c = before(bytes, end);
+            if (at_boundary and end < bytes.len and regional(c) and c.start > 0 and
+                raw(.{ .start = end, .index = records.read(bytes[end..]).index }).grapheme_break == .regional_indicator)
+            {
+                // A boundary between two regional indicators: the run before
+                // it is even, so `c` pairs with the indicator before it, and
+                // before that pair is a boundary when the run goes on.
+                const pair = before(bytes, c.start);
+                if (regional(pair)) {
+                    if (pair.start == 0 or regional(before(bytes, pair.start))) return pair.start;
+                    c = pair;
+                }
+            }
+            while (c.start > 0) {
+                const p = before(bytes, c.start);
+                if (isBoundary(bytes, p, c)) return c.start;
+                c = p;
+            }
+            return 0;
         }
     };
 }
@@ -250,6 +417,15 @@ pub fn Iterator(comptime rules: Rules) type {
             return .{ .bytes = bytes };
         }
 
+        /// An iterator whose next cluster starts at `at`, a boundary of
+        /// `bytes`: its start, its end, or where an earlier iterator's
+        /// cluster started or ended. The clusters after a boundary are the
+        /// same whatever came before it.
+        pub fn initAt(bytes: []const u8, at: domains.Bytes) Self {
+            aegis.assert.pre(at.compare(.fromRaw(bytes.len)) != .gt, "the offset is within the text");
+            return .{ .bytes = bytes, .at = at.raw() };
+        }
+
         /// Where the next cluster starts.
         pub fn offset(it: *const Self) domains.Bytes {
             return .fromRaw(it.at);
@@ -259,6 +435,27 @@ pub fn Iterator(comptime rules: Rules) type {
         pub fn next(it: *Self) ?[]const u8 {
             const s = it.nextSpan() orelse return null;
             return s.of(it.bytes);
+        }
+
+        /// The cluster before `offset()`, or null at the start; `offset()`
+        /// moves back to where it starts, so `next` gives it again.
+        pub fn prev(it: *Self) ?[]const u8 {
+            const s = it.prevSpan() orelse return null;
+            return s.of(it.bytes);
+        }
+
+        /// The byte range of the cluster before `offset()`, or null at the
+        /// start. Reads back only as far as the rules need (`boundaryBefore`),
+        /// and through a run of regional indicators once however many
+        /// clusters it is stepped back over.
+        pub fn prevSpan(it: *Self) ?Span {
+            const end = it.at;
+            if (end == 0) return null;
+            const start = Reverse(rules).start(it.bytes, end, true);
+            it.at = start;
+            it.pending = 0;
+            it.breaker = .{};
+            return .{ .start = .fromRaw(start), .end = .fromRaw(end) };
         }
 
         /// The next cluster's byte range, or null at the end.
@@ -304,6 +501,29 @@ pub fn iterate(bytes: []const u8) Iterator(.{}) {
     return .init(bytes);
 }
 
+/// The last boundary before `offset` (0 < `offset` <= `bytes.len`): where
+/// the cluster that holds byte `offset - 1` starts, as segmenting `bytes`
+/// from its start finds it. A cursor's step left, or a backspace.
+///
+/// The text before is read only as far as the rule that decides each
+/// position needs: to the start of the cluster, and past it through a run
+/// of InCB=Extend (GB9c), of Extend before a ZWJ (GB11), or of regional
+/// indicators (GB12, GB13), never from the start of the text. Stepping back
+/// over many clusters is linear with `Iterator.prev`, which knows it stands
+/// on a boundary and so counts a run of regional indicators once.
+pub fn boundaryBefore(bytes: []const u8, offset: domains.Bytes, comptime rules: Rules) domains.Bytes {
+    aegis.assert.pre(offset.compare(.fromRaw(0)) == .gt and offset.compare(.fromRaw(bytes.len)) != .gt, "a boundary before the offset exists");
+    return .fromRaw(Reverse(rules).start(bytes, offset.raw(), false));
+}
+
+/// The end of the cluster that starts at `start`, which must be a boundary
+/// before the end of `bytes`. A cursor's step right.
+pub fn boundaryAfter(bytes: []const u8, start: domains.Bytes, comptime rules: Rules) domains.Bytes {
+    aegis.assert.pre(start.compare(.fromRaw(bytes.len)) == .lt, "a cluster starts at the offset");
+    var it: Iterator(rules) = .initAt(bytes, start);
+    return (it.nextSpan() orelse aegis.assert.never("a cluster starts before the end")).end;
+}
+
 /// How many clusters `bytes` holds by `rules`.
 pub fn count(bytes: []const u8, comptime rules: Rules) domains.Clusters {
     var it: Iterator(rules) = .init(bytes);
@@ -331,4 +551,21 @@ test "tailorings" {
     // A mark after a control: apart by GB5, joined when controls are Other.
     try std.testing.expectEqual(2, count("\t\u{301}", .{}).raw());
     try std.testing.expectEqual(1, count("\t\u{301}", .{ .controls = .as_other }).raw());
+}
+
+test "stepping back" {
+    const text = "e\u{301}\u{1f469}\u{1f3fd}\u{200d}\u{1f680}\u{1f1e8}\u{1f1ed}\u{1f1e8}\r\n\u{915}\u{94d}\u{937}";
+    var it: Iterator(.{}) = .initAt(text, .fromRaw(text.len));
+    const want = [_][]const u8{ "\u{915}\u{94d}\u{937}", "\r\n", "\u{1f1e8}", "\u{1f1e8}\u{1f1ed}", "\u{1f469}\u{1f3fd}\u{200d}\u{1f680}", "e\u{301}" };
+    for (want) |w| try std.testing.expectEqualStrings(w, it.prev().?);
+    try std.testing.expectEqual(null, it.prev());
+    try std.testing.expectEqualStrings("e\u{301}", it.next().?);
+    // The start of the cluster that holds a byte, from inside a code point.
+    try std.testing.expectEqual(1 + 2, boundaryBefore(text, .fromRaw(1 + 2 + 5), .{}).raw());
+    try std.testing.expectEqual(3, boundaryAfter("e\u{301}x", .fromRaw(0), .{}).raw());
+    // A prepend joins the pair of regional indicators after it.
+    const flags = "\u{600}\u{1f1e6}\u{1f1e6}\u{1f1e6}";
+    var back: Iterator(.{}) = .initAt(flags, .fromRaw(flags.len));
+    try std.testing.expectEqualStrings("\u{1f1e6}", back.prev().?);
+    try std.testing.expectEqualStrings("\u{600}\u{1f1e6}\u{1f1e6}", back.prev().?);
 }

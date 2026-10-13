@@ -6,6 +6,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Breaking
+
+- `case.equalFold(a, b, options)` is `case.equal(.default, a, b, options)`:
+  `case.equal` takes a `case.Match`, one of the caseless matches of the Unicode
+  Standard's chapter 3.13.
+- `normalize.Form` has a fifth value, `.nfkc_casefold`, so an exhaustive switch
+  over it needs a case for it.
+
+### Added
+
+- Grapheme clusters backward: `grapheme.Iterator.prev` and `prevSpan` step back a
+  cluster from any boundary, `Iterator.initAt` starts at any boundary,
+  `grapheme.boundaryBefore` gives the last boundary before any byte offset and
+  `grapheme.boundaryAfter` the end of the cluster that starts at a boundary,
+  under both tailorings and with no allocation. The text before is read only as
+  far back as the rule that decides a position needs (GB9c, GB11, GB12 and GB13
+  included), never from the start of the text.
+- NFKC_Casefold: `normalize.Form.nfkc_casefold` is toNFKC_Casefold, through
+  `write`, `Iterator`, `isNormalized`, `quickCheck`, `equal` and `decompose`,
+  generated from DerivedNormalizationProps.txt.
+- Caseless matching: `case.equal` with `.default` (D144), `.canonical` (D145,
+  canonical caseless match) and `.identifier` (D147, identifier caseless match,
+  through NFKC_Casefold).
+
 ## [0.2.0] - 2026-10-13
 
 ### Breaking

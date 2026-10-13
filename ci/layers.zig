@@ -13,7 +13,7 @@ pub const layers: []const gantry.rules.Layer = &.{
         "src/records.zig",
         "src/utf8.zig",
     } },
-    .{ .name = "grapheme clusters", .patterns = &.{"src/grapheme.zig"} },
+    .{ .name = "grapheme clusters and canonical ordering", .patterns = &.{ "src/grapheme.zig", "src/canonical.zig" } },
     .{ .name = "words, sentences and widths", .patterns = &.{
         "src/word.zig",
         "src/sentence.zig",
@@ -69,6 +69,7 @@ pub const required = [_][]const u8{
     "src/sentence.zig",
     "src/width.zig",
     "src/line.zig",
+    "src/canonical.zig",
     "src/normalize.zig",
     "src/case.zig",
     "src/xenoglyph.zig",

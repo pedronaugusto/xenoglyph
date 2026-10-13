@@ -16,11 +16,33 @@ pub fn main() !void {
     // Terminal columns: each of the four is 2, 2, 1 and 2, and a space 1.
     std.debug.assert(xenoglyph.width.string(text, .{}).eql(.fromRaw(10)));
     // --- README:usage ---
+    cursor();
     words();
     properties();
     stream();
     lines();
     try transform();
+}
+
+fn cursor() void {
+    // --- README:cursor ---
+    // A cursor at the end of "e" and a combining acute, a flag and "x".
+    const text = "e\u{301}\u{1f1e8}\u{1f1ed}x";
+    var at: xenoglyph.Bytes = .fromRaw(text.len);
+    // Left a cluster at a time: the text before is read only as far as the
+    // rules need, never from the start of the text.
+    at = xenoglyph.grapheme.boundaryBefore(text, at, .{});
+    std.debug.assert(at.eql(.fromRaw(11)));
+    at = xenoglyph.grapheme.boundaryBefore(text, at, .{});
+    std.debug.assert(at.eql(.fromRaw(3)));
+    // Right again.
+    std.debug.assert(xenoglyph.grapheme.boundaryAfter(text, at, .{}).eql(.fromRaw(11)));
+    // An iterator steps both ways from any boundary.
+    var it: xenoglyph.grapheme.Iterator(.{}) = .initAt(text, .fromRaw(text.len));
+    std.debug.assert(std.mem.eql(u8, it.prev().?, "x"));
+    std.debug.assert(std.mem.eql(u8, it.prev().?, "\u{1f1e8}\u{1f1ed}"));
+    std.debug.assert(std.mem.eql(u8, it.next().?, "\u{1f1e8}\u{1f1ed}"));
+    // --- README:cursor ---
 }
 
 fn words() void {
@@ -67,7 +89,14 @@ fn transform() !void {
     w = .fixed(&out);
     try xenoglyph.case.write(.upper, "stra\u{df}e", &w, .{});
     std.debug.assert(std.mem.eql(u8, w.buffered(), "STRASSE"));
-    std.debug.assert(xenoglyph.case.equalFold("Ma\u{df}e", "MASSE", .{}));
+    std.debug.assert(xenoglyph.case.equal(.default, "Ma\u{df}e", "MASSE", .{}));
+    // Canonical caseless match normalizes too; identifier caseless match
+    // uses NFKC_Casefold, which also drops default ignorables (a soft hyphen).
+    std.debug.assert(xenoglyph.case.equal(.canonical, "\u{212b}NGSTR\u{f6}M", "a\u{30a}ngstro\u{308}m", .{}));
+    std.debug.assert(xenoglyph.case.equal(.identifier, "\u{2167}_val\u{ad}ue", "viii_VALUE", .{}));
+    w = .fixed(&out);
+    try xenoglyph.normalize.write(.nfkc_casefold, "\u{fb01}LE\u{2460}", &w);
+    std.debug.assert(std.mem.eql(u8, w.buffered(), "file1"));
     w = .fixed(&out);
     try xenoglyph.case.write(.lower, "D\u{130}YARBAKIR", &w, .{ .language = .turkic });
     std.debug.assert(std.mem.eql(u8, w.buffered(), "diyarbak\u{131}r"));

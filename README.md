@@ -1,9 +1,10 @@
 # xenoglyph
 
-xenoglyph handles Unicode text in Zig: grapheme clusters, words and sentences
-(UAX #29), line break opportunities (UAX #14), normalization (UAX #15), case
-mapping and folding, how many terminal cells text takes, and the character
-properties those rest on, from the Unicode Character Database 18.0.0. Nothing in it
+xenoglyph handles Unicode text in Zig: grapheme clusters, forward and
+backward, words and sentences (UAX #29), line break opportunities (UAX #14),
+normalization (UAX #15) and NFKC_Casefold, case mapping, folding and caseless
+matching, how many terminal cells text takes, and the character properties
+those rest on, from the Unicode Character Database 18.0.0. Nothing in it
 allocates, nothing holds global state, and every call builds for a target with
 no operating system.
 
@@ -40,6 +41,31 @@ while (clusters.next()) |cluster| {
 std.debug.assert(count == 4);
 // Terminal columns: each of the four is 2, 2, 1 and 2, and a space 1.
 std.debug.assert(xenoglyph.width.string(text, .{}).eql(.fromRaw(10)));
+```
+<!-- END GENERATED -->
+
+A cursor steps a cluster at a time either way, from any boundary:
+
+<!-- BEGIN GENERATED zig build docs -- cursor -->
+```zig
+const xenoglyph = @import("xenoglyph");
+
+// A cursor at the end of "e" and a combining acute, a flag and "x".
+const text = "e\u{301}\u{1f1e8}\u{1f1ed}x";
+var at: xenoglyph.Bytes = .fromRaw(text.len);
+// Left a cluster at a time: the text before is read only as far as the
+// rules need, never from the start of the text.
+at = xenoglyph.grapheme.boundaryBefore(text, at, .{});
+std.debug.assert(at.eql(.fromRaw(11)));
+at = xenoglyph.grapheme.boundaryBefore(text, at, .{});
+std.debug.assert(at.eql(.fromRaw(3)));
+// Right again.
+std.debug.assert(xenoglyph.grapheme.boundaryAfter(text, at, .{}).eql(.fromRaw(11)));
+// An iterator steps both ways from any boundary.
+var it: xenoglyph.grapheme.Iterator(.{}) = .initAt(text, .fromRaw(text.len));
+std.debug.assert(std.mem.eql(u8, it.prev().?, "x"));
+std.debug.assert(std.mem.eql(u8, it.prev().?, "\u{1f1e8}\u{1f1ed}"));
+std.debug.assert(std.mem.eql(u8, it.next().?, "\u{1f1e8}\u{1f1ed}"));
 ```
 <!-- END GENERATED -->
 
@@ -103,7 +129,7 @@ for ([_][]const u8{ "A ", "(quick) ", "test", "\u{2014}", "costs ", "$12.50.\n" 
 ```
 <!-- END GENERATED -->
 
-Normal forms and case, written to any `std.Io.Writer`:
+Normal forms and case, written to any `std.Io.Writer`, and caseless matching:
 
 <!-- BEGIN GENERATED zig build docs -- transform -->
 ```zig
@@ -118,7 +144,14 @@ std.debug.assert(xenoglyph.normalize.equal(.nfkc, "\u{fb01}", "fi"));
 w = .fixed(&out);
 try xenoglyph.case.write(.upper, "stra\u{df}e", &w, .{});
 std.debug.assert(std.mem.eql(u8, w.buffered(), "STRASSE"));
-std.debug.assert(xenoglyph.case.equalFold("Ma\u{df}e", "MASSE", .{}));
+std.debug.assert(xenoglyph.case.equal(.default, "Ma\u{df}e", "MASSE", .{}));
+// Canonical caseless match normalizes too; identifier caseless match
+// uses NFKC_Casefold, which also drops default ignorables (a soft hyphen).
+std.debug.assert(xenoglyph.case.equal(.canonical, "\u{212b}NGSTR\u{f6}M", "a\u{30a}ngstro\u{308}m", .{}));
+std.debug.assert(xenoglyph.case.equal(.identifier, "\u{2167}_val\u{ad}ue", "viii_VALUE", .{}));
+w = .fixed(&out);
+try xenoglyph.normalize.write(.nfkc_casefold, "\u{fb01}LE\u{2460}", &w);
+std.debug.assert(std.mem.eql(u8, w.buffered(), "file1"));
 w = .fixed(&out);
 try xenoglyph.case.write(.lower, "D\u{130}YARBAKIR", &w, .{ .language = .turkic });
 std.debug.assert(std.mem.eql(u8, w.buffered(), "diyarbak\u{131}r"));
@@ -163,6 +196,23 @@ an emoji ZWJ sequence or an Indic linker in progress), a column per kind of
 code point. Segmenting is then a table read per code point, and a `Breaker`
 is one byte of state. Between two ASCII bytes there is always a boundary but
 in CR LF, and the iterator takes that without the tables.
+
+Backward (`grapheme.boundaryBefore`, `Iterator.prev`), each position is decided
+from the text before it, read only as far back as the rule that decides it
+needs, never from the start of the text. Most positions are decided by the
+two code points beside them: for each pair of records, whether every state the
+automaton can be in after the first agrees on the second is worked out at
+compile time. Where they do not, the context is rebuilt from the run it
+depends on and the same rules decide: GB9c reads back through InCB=Extend to an
+InCB=Linker, GB11 through Extend before a ZWJ to an Extended_Pictographic, and
+GB12 and GB13 count the run of regional indicators. The clusters after a
+boundary are the same whatever came before it, so an iterator starts at any
+boundary (`Iterator.initAt`) and `boundaryAfter` steps forward from one. An
+iterator stepping back knows it stands on a boundary, which decides a run of
+regional indicators it is inside without counting it again, so stepping back
+over a whole text is linear. Decoding backward finds the same code points as
+forward: a byte that is not a continuation byte always starts one, so the start
+of the code point before an offset is at most four bytes back.
 
 Words and sentences follow the default rules WB1 to WB999 and SB1 to SB998,
 with no tailoring; `word.isWordLike` tells a word from the space or
@@ -214,6 +264,17 @@ forms its compositions are worked out the same way, so every input normalizes
 exactly and nothing is allocated, at a cost proportional to the run and the
 classes in it.
 
+NFKC_Casefold (`.nfkc_casefold`) is toNFKC_Casefold as chapter 3.13 of the
+Unicode Standard defines it: each code point mapped by the NFKC_Casefold
+property of DerivedNormalizationProps.txt (NFKC, full case folding and the
+removal of default ignorables, repeated until stable), then NFC. The table holds
+each mapping fully decomposed where it differs from the code point's
+compatibility decomposition, so the form runs through the same ordering and
+composition as NFKC. Its quick check answers `no` for a code point the mapping
+changes (Changes_When_NFKC_Casefolded), since the transform never writes one:
+the suite checks that what the mappings give is unchanged by them, and so is
+every composite canonical composition makes of unchanged code points.
+
 ### Case
 
 Lowercase, uppercase, titlecase and case folding follow chapter 3.13 of the
@@ -221,8 +282,19 @@ Unicode Standard: full mappings (`ß` uppercases to `SS`, `ﬁ` folds to `fi`), 
 Final_Sigma context always, and SpecialCasing.txt's Lithuanian and Turkic
 tailorings when `Options.language` names them. Titlecase maps the first cased
 letter of each UAX #29 word to titlecase and everything else to lowercase.
-`equalFold` is the default caseless match: equal after full folding, without
-normalizing.
+`case.equal` is a caseless match of chapter 3.13: `.default` (D144) is
+equality after full folding; `.canonical` (D145) folds between NFDs,
+NFD(toCasefold(NFD(X))); `.identifier` (D147) is toNFKC_Casefold(NFD(X)),
+which also ignores default ignorables and is what loose matching of
+compatibility characters wants. Each compares the two transformed texts a code
+point at a time with nothing allocated. The definitions order a text's
+decomposition (the inner NFD) before mapping it and order again after; one
+ordering does the work of both, since a non-starter maps to non-starters of its
+own class or to nothing, except U+0345, the iota subscript, which maps to a
+starter, has the highest combining class and so ends its run in NFD: it is held
+to the end of its run and given out there. The suite checks both facts for every
+code point. So a match reads the text once, and a long run once more for each
+combining class in it, as normalizing does.
 
 ### Width
 
@@ -276,7 +348,7 @@ The UCD files are in the repository and outside what the package ships.
 | Script_Extensions | 4,016 |
 | Derived core properties | 20,404 |
 | Line breaking records (resolved class and the flags the rules read) | 36,348 |
-| Normalization: combining classes, decompositions and their code points, compositions, quick checks | 120,340 |
+| Normalization: combining classes, decompositions, NFKC_Casefold and their code points, compositions, quick checks | 144,448 |
 | Case: simple mappings and the flags the contexts read, full mappings | 19,216 |
 | Line_Break | 19,136 |
 | Sentence_Break | 16,736 |
@@ -298,17 +370,18 @@ it covers. Every iterator's `offset()` is where its next segment starts.
 
 | Call | Does |
 |---|---|
-| `graphemes(text)`, `grapheme.Iterator(rules)` | The clusters of a string: `next()` a slice, `nextSpan()` a byte range |
+| `graphemes(text)`, `grapheme.Iterator(rules)` | The clusters of a string: `next()` a slice, `nextSpan()` a byte range, and `prev()`, `prevSpan()` the one before; `initAt(text, offset)` starts at any boundary |
+| `grapheme.boundaryBefore(text, offset, rules)`, `grapheme.boundaryAfter(text, start, rules)` | The last boundary before any offset (cursor left, backspace, the start of the cluster holding a byte); the end of the cluster that starts at a boundary (cursor right) |
 | `grapheme.Breaker(rules)` | `next(cp)`: whether a code point starts a cluster, for text that arrives a code point at a time |
 | `grapheme.count(text, rules)` | How many clusters a string holds, as `Clusters` |
 | `words(text)`, `word.isWordLike(segment)` | Words and the runs between them; whether a segment is a word |
 | `sentences(text)` | Sentences |
 | `lines(text)`, `line.Iterator.nextBreak()` | Line break opportunities, each with whether the break is mandatory |
-| `normalize.write(form, text, writer)`, `normalize.Iterator(form)` | NFD, NFC, NFKD or NFKC of a text |
+| `normalize.write(form, text, writer)`, `normalize.Iterator(form)` | NFD, NFC, NFKD, NFKC or NFKC_Casefold of a text |
 | `normalize.isNormalized`, `normalize.quickCheck`, `normalize.equal` | Whether a text is in a form; UAX #15's quick check; whether two texts have the same normal form |
 | `normalize.combiningClass`, `normalize.decompose`, `normalize.compose` | Canonical_Combining_Class, a code point's full decomposition, a primary composite |
 | `case.write(mapping, text, writer, options)`, `case.Iterator(mapping)` | Lowercase, uppercase, titlecase or full case folding of a text |
-| `case.equalFold(a, b, options)` | Whether two texts match caselessly |
+| `case.equal(match, a, b, options)` | Whether two texts match caselessly: default, canonical or identifier caseless match |
 | `case.simpleLower`, `simpleUpper`, `simpleTitle`, `simpleFold` | The simple, one-to-one mappings of a code point |
 | `width.string(text, options)` | A string's terminal columns, as `Columns` |
 | `width.cluster(bytes, options)` | One cluster's columns, 0 to 2 |
@@ -333,14 +406,12 @@ property's default, as an unassigned code point does.
   spaces and punctuation), no hyphenation, and no locale data.
 - No bidirectional text, shaping or rendering: widths are the cells a
   monospace terminal gives text, not glyph metrics.
-- Iteration is forward only; a caller that needs a boundary before a position
-  starts from a known boundary before it.
 - No Grapheme_Link (deprecated), and no PropList properties beyond what the
   segmentation rules derive from.
-- No collation, no locale data beyond the Lithuanian and Turkic casings, and no
-  NFKC_Casefold or identifier profiles (UAX #31).
-- `equalFold` does not normalize; canonical caseless matching normalizes both
-  texts first.
+- No collation, no locale data beyond the Lithuanian and Turkic casings, no
+  NFKC_Simple_Casefold, and no identifier profiles (UAX #31).
+- No compatibility caseless match (D146): identifier caseless match covers
+  loose matching of compatibility characters.
 
 ## Platforms
 
@@ -370,6 +441,9 @@ own conformance files pass in full: all 853 lines of GraphemeBreakTest.txt,
 LineBreakTest.txt and 20,171 of NormalizationTest.txt (all five columns in all
 four forms, through the iterator, `write`, `isNormalized` and the quick check), through the
 iterators and, for graphemes, a code point at a time through a `Breaker` too.
+GraphemeBreakTest.txt read backward gives exactly its boundaries, under each
+tailoring as forward: by `prev` from the end, and by `boundaryBefore` from
+every byte offset.
 With `.after_base` modifiers every line holds
 with a boundary added before a skin tone that follows no modifier base, and with
 `.as_other` controls every line that has no control, CR or LF holds unchanged. Every one of the 5,244 sequences of emoji-test.txt is one
@@ -377,7 +451,9 @@ cluster under both modifier rules, and each of the 3,972 fully-qualified ones
 and components is 2 columns.
 
 Every code point NormalizationTest.txt does not list is its own normal form in
-all four forms. The simple and full case mappings and folding are checked against
+all four forms. NFKC_Casefold of every code point is DerivedNormalizationProps.txt's,
+through the iterator, `write`, `isNormalized` and the quick check, and
+Changes_When_NFKC_Casefolded is what the mapping changes. The simple and full case mappings and folding are checked against
 UnicodeData.txt, SpecialCasing.txt and CaseFolding.txt for every code point, every
 conditional mapping of SpecialCasing.txt in its context, and the five
 Changes_When properties of DerivedCoreProperties.txt, which the UCD derives by
@@ -391,13 +467,17 @@ every code point. Properties through shakedown run on generated text that mixes
 the code points the rules treat specially with arbitrary bytes: graphemes,
 words, sentences and lines (mandatory breaks included) must be what a second
 implementation that decides each position from the whole text by the rules in
-order finds; segments cover the
+order finds; clusters read backward, from every byte offset and by `prev`, and
+forward from any boundary, are the ones read from the start, on that text and on
+text dense in the runs the backward rules read context from; segments cover the
 text and fall on code point boundaries; a string's width is the sum of its
 clusters'; and decoding agrees with std on well-formed UTF-8 and takes the
 maximal subpart, by its definition, of everything else. Normal forms of generated
 text with runs of up to a hundred marks are what a plain allocating
 implementation gives; folding, lowercasing and uppercasing are idempotent in
-every language tailoring. They run on seeded
+every language tailoring; and each caseless match agrees with the transform it
+is defined as, done a step at a time over the whole text, on generated pairs of
+texts in other cases and normal forms. They run on seeded
 inputs in every `bay test`, and under `bay test --fuzz` they search further.
 Nothing here can allocate: no call takes an allocator. The source checks gate
 glint's aegis rules A001 to A004: no raw arithmetic or cast on a domain value

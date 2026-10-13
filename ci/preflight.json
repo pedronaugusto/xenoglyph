@@ -21,6 +21,13 @@
         "xenoglyph"
       ]
     },
+    "zig build docs -- cursor": {
+      "source": "examples/usage.zig",
+      "region": "cursor",
+      "imports": [
+        "xenoglyph"
+      ]
+    },
     "zig build docs -- words": {
       "source": "examples/usage.zig",
       "region": "words",

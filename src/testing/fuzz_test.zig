@@ -95,12 +95,93 @@ fn segmentsWith(comptime rules: grapheme.Rules, bytes: []const u8) !void {
         first = false;
     }
     if (bytes.len > 0) try std.testing.expectEqual(ends.items.len - 1, found);
+    try expectBackward(rules, bytes, ends.items);
     // Measured whole, each cluster is 0 to 2 columns, and the string's
     // columns are their sum.
     var total: usize = 0;
     var again: grapheme.Iterator(rules) = .init(bytes);
     while (again.next()) |g| total += width.cluster(g, .{}).raw();
     try std.testing.expectEqual(total, width.string(bytes, .{ .rules = rules }).raw());
+}
+
+/// Read backward, a text's clusters are the ones read forward (`ends`, the
+/// end of each): by `prev` from the end, and by `boundaryBefore` from every
+/// byte offset, inside a code point or an ill-formed sequence too; and
+/// read forward from any boundary, by `initAt` and `boundaryAfter`, they
+/// are the ones read from the start.
+fn expectBackward(comptime rules: grapheme.Rules, bytes: []const u8, ends: []const usize) !void {
+    var it: grapheme.Iterator(rules) = .initAt(bytes, .fromRaw(bytes.len));
+    var k = ends.len;
+    while (k > 0) {
+        k -= 1;
+        const span = it.prevSpan().?;
+        try std.testing.expectEqual(ends[k], span.end.raw());
+        try std.testing.expectEqual(if (k == 0) 0 else ends[k - 1], span.start.raw());
+        try std.testing.expectEqual(ends[k], grapheme.boundaryAfter(bytes, span.start, rules).raw());
+    }
+    try std.testing.expectEqual(null, it.prevSpan());
+    var before: usize = 0;
+    var next: usize = 0;
+    for (1..bytes.len + 1) |offset| {
+        try std.testing.expectEqual(before, grapheme.boundaryBefore(bytes, .fromRaw(offset), rules).raw());
+        if (offset == ends[next]) {
+            before = offset;
+            next += 1;
+        }
+    }
+    // Forward from a boundary in the middle, and back and forth there.
+    if (ends.len > 1) {
+        const middle = ends.len / 2;
+        var from: grapheme.Iterator(rules) = .initAt(bytes, .fromRaw(ends[middle - 1]));
+        for (ends[middle..]) |e| try std.testing.expectEqual(e, from.nextSpan().?.end.raw());
+        try std.testing.expectEqual(null, from.nextSpan());
+        try std.testing.expectEqual(ends[ends.len - 2], from.prevSpan().?.start.raw());
+        try std.testing.expectEqual(bytes.len, from.nextSpan().?.end.raw());
+    }
+}
+
+/// Code points the backward rules read context for, and what breaks that
+/// context: dense, so long runs of regional indicators, Extend, Indic
+/// linkers and ZWJ sequences form, among ill-formed bytes.
+const contextual = [_]u21{
+    0x1f1e6, 0x1f1e8, 0x1f1ed, 0x1f1e6, 0x600,   0x915,  0x937, 0x94d, 0x93c, 0x9cd, 0x300, 0x200d, 0x200d,
+    0x1f468, 0x1f469, 0x2764,  0x1f3fb, 0x1f44d, 0xfe0f, 'a',   '\r',  '\n',  '\t',  0x903, 0x1100, 0x1161,
+};
+
+fn denseText(case: *shakedown.Case) ![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    const mark = case.source.begin();
+    defer case.source.end(mark);
+    while (out.items.len < 256 and case.source.more(12)) {
+        if (gen.intRange(case.source, u8, 0, 15) == 0) {
+            try out.append(case.gpa, gen.oneOf(case.source, u8, &.{ 0x80, 0xbf, 0xe0, 0xf0, 0xf4, 0x9f, 0xc2, 0xff }));
+            continue;
+        }
+        // A code point repeated, so runs form.
+        var buffer: [4]u8 = undefined;
+        const n = std.unicode.utf8Encode(gen.oneOf(case.source, u21, &contextual), &buffer) catch unreachable; // unreachable: the list holds only scalar values
+        for (0..gen.intRange(case.source, u8, 1, 5)) |_| try out.appendSlice(case.gpa, buffer[0..n]);
+    }
+    return out.items;
+}
+
+fn denseGraphemes(_: void, case: *shakedown.Case) anyerror!void {
+    const bytes = try denseText(case);
+    case.note("text: {any}", .{bytes});
+    try segmentsWith(.{}, bytes);
+    try segmentsWith(.{ .modifiers = .after_base }, bytes);
+    try segmentsWith(.{ .controls = .as_other }, bytes);
+    try segmentsWith(grapheme.Rules.terminal, bytes);
+    // Forward, the clusters are the rules read literally.
+    const decoded: oracle.Decoded = try .init(case.gpa, bytes);
+    var g: grapheme.Iterator(.{}) = .init(bytes);
+    var clusters = try expectCover(bytes, &g);
+    defer clusters.deinit(std.testing.allocator);
+    try std.testing.expectEqualSlices(usize, try oracle.graphemes(case.gpa, decoded), clusters.items);
+}
+
+test "grapheme clusters of text dense in the context the rules read are the same read backward" {
+    try shakedown.check(std.testing.allocator, {}, denseGraphemes, .{ .cases = 2000 });
 }
 
 fn graphemes(_: void, case: *shakedown.Case) anyerror!void {
@@ -111,7 +192,7 @@ fn graphemes(_: void, case: *shakedown.Case) anyerror!void {
     try segmentsWith(grapheme.Rules.terminal, bytes);
 }
 
-test "grapheme clusters cover any text, agree with the breaker and sum to its width" {
+test "grapheme clusters cover any text, agree with the breaker, read the same backward and sum to its width" {
     try shakedown.check(std.testing.allocator, {}, graphemes, .{ .cases = 2000 });
 }
 
@@ -242,14 +323,14 @@ fn stdDecode(bytes: []const u8) !u21 {
 
 /// Marks of many classes, some that compose, joiners, Hangul jamo and
 /// syllables, compatibility characters, and a few letters.
-const marks = [_]u21{ 0x300, 0x301, 0x302, 0x303, 0x307, 0x308, 0x30a, 0x323, 0x327, 0x328, 0x331, 0x345, 0x5b0, 0x5bf, 0x93c, 0x94d, 0xe38, 0x1dce, 0x302a, 0x302b, 0x1d167, 0x344, 0xf73, 0xf75 };
+const marks = [_]u21{ 0x345, 0x300, 0x301, 0x302, 0x303, 0x307, 0x308, 0x30a, 0x323, 0x327, 0x328, 0x331, 0x345, 0x5b0, 0x5bf, 0x93c, 0x94d, 0xe38, 0x1dce, 0x302a, 0x302b, 0x1d167, 0x344, 0xf73, 0xf75 };
 const bases = [_]u21{ 'a', 'e', 'o', 'A', 0x3b1, 0x3b9, 0x928, 0x1100, 0x1161, 0x11a8, 0xac00, 0xac01, 0x1e0b, 0x212b, 0xfb01, 0x2460, 0xfdfa, 0x1f1, 0xb47, 0xb3e };
 
-fn markText(case: *shakedown.Case) ![]const u8 {
+fn markText(case: *shakedown.Case, max_len: usize) ![]const u8 {
     var out: std.ArrayList(u8) = .empty;
     // Runs of a base and up to 100 marks, so some pass the 32 a run holds
     // in the iterator's buffer.
-    while (out.items.len < 1200 and case.source.more(3)) {
+    while (out.items.len < max_len and case.source.more(3)) {
         var buffer: [4]u8 = undefined;
         var len = std.unicode.utf8Encode(gen.oneOf(case.source, u21, &bases), &buffer) catch unreachable; // unreachable: the list holds scalar values
         if (gen.boolean(case.source)) try out.appendSlice(case.gpa, buffer[0..len]);
@@ -262,10 +343,10 @@ fn markText(case: *shakedown.Case) ![]const u8 {
 }
 
 fn normalForms(_: void, case: *shakedown.Case) anyerror!void {
-    const bytes = if (gen.boolean(case.source)) try markText(case) else try text(case);
+    const bytes = if (gen.boolean(case.source)) try markText(case, 1200) else try text(case);
     case.note("text: {any}", .{bytes});
     const decoded: oracle.Decoded = try .init(case.gpa, bytes);
-    inline for (.{ .nfd, .nfc, .nfkd, .nfkc }) |form| {
+    inline for (.{ .nfd, .nfc, .nfkd, .nfkc, .nfkc_casefold }) |form| {
         const want = try oracle.normalized(case.gpa, form, decoded);
         var it: xenoglyph.normalize.Iterator(form) = .init(bytes);
         for (want) |w| try std.testing.expectEqual(@as(?u21, w), it.next());
@@ -320,10 +401,64 @@ fn caseMappings(_: void, case: *shakedown.Case) anyerror!void {
             try std.testing.expectEqualStrings(once, try caseOf(mapping, case.gpa, once, options));
         }
         _ = try caseOf(.title, case.gpa, bytes, options);
-        try std.testing.expect(xenoglyph.case.equalFold(bytes, try caseOf(.fold, case.gpa, bytes, options), options));
+        try std.testing.expect(xenoglyph.case.equal(.default, bytes, try caseOf(.fold, case.gpa, bytes, options), options));
     }
 }
 
 test "folding, lowercasing and uppercasing any text are idempotent in every language" {
     try shakedown.check(std.testing.allocator, {}, caseMappings, .{ .cases = 1000 });
+}
+
+/// What the caseless matches treat specially: letters whose folding expands
+/// or is Turkic, the iota subscript that folds to a starter, compatibility
+/// characters that bring case or marks, default ignorables, Greek with
+/// ypogegrammeni, and the marks around them.
+const caseless_specials = [_]u21{ 'I', 'i', 0x130, 0x131, 0x345, 0x313, 0x301, 0x308, 0x323, 0x3b1, 0x391, 0x1f80, 0x1fb3, 0x1fbe, 0x37a, 0xdf, 0x1e9e, 0xfb01, 0x2122, 0x3392, 0xa8, 0xff76, 0xff9e, 0x2160, 0x212b, 0xc5, 0xad, 0x200b, 0x34f, 0xe0001, 0x1100, 0x1161, 0xac00, 0x3a3, 0x149 };
+
+fn caselessText(case: *shakedown.Case) ![]const u8 {
+    // Runs of marks past the 32 the ordering buffers.
+    if (gen.intRange(case.source, u8, 0, 3) == 0) return markText(case, 600);
+    var out: std.ArrayList(u8) = .empty;
+    while (out.items.len < 200 and case.source.more(16)) {
+        if (gen.intRange(case.source, u8, 0, 3) != 0) {
+            var buffer: [4]u8 = undefined;
+            const len = std.unicode.utf8Encode(gen.oneOf(case.source, u21, &caseless_specials), &buffer) catch unreachable; // unreachable: the list holds scalar values
+            try out.appendSlice(case.gpa, buffer[0..len]);
+        } else try piece(case.source, &out, case.gpa);
+    }
+    return out.items;
+}
+
+/// A text that may match `a`: it again in another case or normal form, or
+/// another text.
+fn variant(case: *shakedown.Case, a: []const u8, options: xenoglyph.case.Options) ![]const u8 {
+    var out: std.Io.Writer.Allocating = .init(case.gpa);
+    switch (gen.intRange(case.source, u8, 0, 8)) {
+        0 => try xenoglyph.case.write(.upper, a, &out.writer, options),
+        1 => try xenoglyph.case.write(.lower, a, &out.writer, options),
+        2 => try xenoglyph.case.write(.fold, a, &out.writer, options),
+        3 => try xenoglyph.normalize.write(.nfd, a, &out.writer),
+        4 => try xenoglyph.normalize.write(.nfc, a, &out.writer),
+        5 => try xenoglyph.normalize.write(.nfkd, a, &out.writer),
+        6 => try xenoglyph.normalize.write(.nfkc_casefold, a, &out.writer),
+        7 => try xenoglyph.case.write(.title, a, &out.writer, options),
+        else => return caselessText(case),
+    }
+    return out.written();
+}
+
+fn caselessMatches(_: void, case: *shakedown.Case) anyerror!void {
+    const options: xenoglyph.case.Options = .{ .language = gen.oneOf(case.source, xenoglyph.case.Language, &.{ .none, .turkic }) };
+    const a = try caselessText(case);
+    const b = try variant(case, a, options);
+    case.note("a: {any}\nb: {any}", .{ a, b });
+    inline for (.{ .default, .canonical, .identifier }) |match| {
+        const want = std.mem.eql(u21, try oracle.caseless(case.gpa, match, a, options), try oracle.caseless(case.gpa, match, b, options));
+        try std.testing.expectEqual(want, xenoglyph.case.equal(match, a, b, options));
+        try std.testing.expect(xenoglyph.case.equal(match, a, a, options));
+    }
+}
+
+test "the caseless matches agree with folding and normalizing the whole text step by step" {
+    try shakedown.check(std.testing.allocator, {}, caselessMatches, .{ .cases = 1500 });
 }

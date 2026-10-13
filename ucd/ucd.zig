@@ -24,3 +24,4 @@ pub const normalization_test = @embedFile("NormalizationTest.txt");
 pub const unicode_data = @embedFile("UnicodeData.txt");
 pub const special_casing = @embedFile("SpecialCasing.txt");
 pub const case_folding = @embedFile("CaseFolding.txt");
+pub const derived_normalization_props = @embedFile("DerivedNormalizationProps.txt");

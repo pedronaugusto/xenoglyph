@@ -332,7 +332,10 @@ pub const QuickCheck = packed struct(u8) {
     nfc_maybe: bool = false,
     nfkc_no: bool = false,
     nfkc_maybe: bool = false,
-    _: u2 = 0,
+    /// Changes_When_NFKC_Casefolded: NFKC_Casefold maps the code point to
+    /// something else.
+    nfkc_casefold_changes: bool = false,
+    _: u1 = 0,
 };
 
 /// A code point's simple case mappings as differences from it, and what the

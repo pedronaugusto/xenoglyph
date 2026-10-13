@@ -29,6 +29,19 @@ const Context = struct {
         }.run;
     }
 
+    fn graphemesBackward(comptime kind: corpus.Kind) fn (*Context, u64) WorkloadError!void {
+        return struct {
+            fn run(c: *Context, units: u64) WorkloadError!void {
+                for (0..units) |_| {
+                    const input = c.text(kind);
+                    var it: xenoglyph.grapheme.Iterator(.{}) = .initAt(input, .fromRaw(input.len));
+                    while (it.prevSpan()) |_| c.count += 1;
+                    std.mem.doNotOptimizeAway(c.count);
+                }
+            }
+        }.run;
+    }
+
     fn words(comptime kind: corpus.Kind) fn (*Context, u64) WorkloadError!void {
         return struct {
             fn run(c: *Context, units: u64) WorkloadError!void {
@@ -75,6 +88,11 @@ const rows = [_]Row{
     .{ .name = "graphemes devanagari", .unit = "64KiB", .run = Context.graphemes(.devanagari) },
     .{ .name = "graphemes emoji", .unit = "64KiB", .run = Context.graphemes(.emoji) },
     .{ .name = "graphemes mixed", .unit = "64KiB", .run = Context.graphemes(.mixed) },
+    .{ .name = "graphemes backward ascii", .unit = "64KiB", .run = Context.graphemesBackward(.ascii) },
+    .{ .name = "graphemes backward latin", .unit = "64KiB", .run = Context.graphemesBackward(.latin) },
+    .{ .name = "graphemes backward devanagari", .unit = "64KiB", .run = Context.graphemesBackward(.devanagari) },
+    .{ .name = "graphemes backward emoji", .unit = "64KiB", .run = Context.graphemesBackward(.emoji) },
+    .{ .name = "graphemes backward mixed", .unit = "64KiB", .run = Context.graphemesBackward(.mixed) },
     .{ .name = "words ascii", .unit = "64KiB", .run = Context.words(.ascii) },
     .{ .name = "words mixed", .unit = "64KiB", .run = Context.words(.mixed) },
     .{ .name = "sentences ascii", .unit = "64KiB", .run = Context.sentences(.ascii) },

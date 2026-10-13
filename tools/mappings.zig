@@ -107,12 +107,20 @@ pub fn normalizationFile(gpa: Allocator, ucd: generate.Ucd, d: UnicodeData) ![]c
     // Quick check and composition exclusions.
     const quick = try generate.filled(gpa, classes.QuickCheck, .{});
     const excluded = try generate.filled(gpa, bool, false);
+    // NFKC_Casefold, where it is not the code point itself.
+    const casefold = try generate.filled(gpa, ?[]const u21, null);
     var lines: generate.Lines = .init(try ucd.read("DerivedNormalizationProps.txt"));
     while (try lines.next()) |l| {
         const name = l.field(0);
         const value = l.field(1);
+        if (std.mem.eql(u8, name, "NFKC_CF")) {
+            const mapping = try parseCodes(gpa, value);
+            for (l.first..@as(usize, l.last) + 1) |cp| casefold[cp] = mapping;
+            continue;
+        }
         for (l.first..@as(usize, l.last) + 1) |cp| {
             if (std.mem.eql(u8, name, "Full_Composition_Exclusion")) excluded[cp] = true //
+            else if (std.mem.eql(u8, name, "Changes_When_NFKC_Casefolded")) quick[cp].nfkc_casefold_changes = true //
             else if (std.mem.eql(u8, name, "NFD_QC")) quick[cp].nfd_no = true //
             else if (std.mem.eql(u8, name, "NFKD_QC")) quick[cp].nfkd_no = true //
             else if (std.mem.eql(u8, name, "NFC_QC")) {
@@ -147,6 +155,34 @@ pub fn normalizationFile(gpa: Allocator, ucd: generate.Ucd, d: UnicodeData) ![]c
         try records.append(gpa, @bitCast(record));
     }
 
+    // NFKC_Casefold, fully decomposed (canonically: toNFKC_Casefold composes
+    // after mapping), where that differs from the full compatibility
+    // decomposition; index 0 is none, and an empty mapping removes the code
+    // point.
+    var casefolds: std.ArrayList(u32) = .empty;
+    try casefolds.append(gpa, 0);
+    const casefold_index = try gpa.alloc(u32, code_points);
+    @memset(casefold_index, 0);
+    var seen: std.AutoHashMapUnmanaged(u32, u32) = .empty;
+    var compatible: std.ArrayList(u21) = .empty;
+    for (0..code_points) |i| {
+        const cp: u21 = @intCast(i);
+        const mapping = casefold[i] orelse continue;
+        run.clearRetainingCapacity();
+        for (mapping) |m| try expand(d, m, false, &run, gpa);
+        compatible.clearRetainingCapacity();
+        try expand(d, cp, true, &compatible, gpa);
+        if (std.mem.eql(u21, run.items, compatible.items)) continue;
+        if (run.items.len > 18) return error.CasefoldTooLong;
+        const bits: u32 = @bitCast(try pool.add(gpa, run.items));
+        const got = try seen.getOrPut(gpa, bits);
+        if (!got.found_existing) {
+            got.value_ptr.* = @intCast(casefolds.items.len);
+            try casefolds.append(gpa, bits);
+        }
+        casefold_index[i] = got.value_ptr.*;
+    }
+
     // Primary composites: a canonical mapping to two code points that is not
     // excluded, keyed by its two code points.
     const Pair = struct { key: u64, composite: u21 };
@@ -164,7 +200,7 @@ pub fn normalizationFile(gpa: Allocator, ucd: generate.Ucd, d: UnicodeData) ![]c
 
     var out: std.Io.Writer.Allocating = .init(gpa);
     const w = &out.writer;
-    try generate.header(w, "Canonical combining classes, decompositions, compositions and quick checks", "UnicodeData.txt, DerivedNormalizationProps.txt");
+    try generate.header(w, "Canonical combining classes, decompositions, NFKC_Casefold, compositions and quick checks", "UnicodeData.txt, DerivedNormalizationProps.txt");
     try w.writeAll("\n/// Canonical_Combining_Class.\n");
     const ccc = try gpa.alloc(u32, code_points);
     for (ccc, d.ccc) |*c, v| c.* = v;
@@ -175,6 +211,10 @@ pub fn normalizationFile(gpa: Allocator, ucd: generate.Ucd, d: UnicodeData) ![]c
     try generate.numbers(w, records.items);
     try w.print("}};\n\n/// {d} bytes: the code points the decompositions name.\npub const pool = [{d}]u21{{\n", .{ pool.items.items.len * 4, pool.items.items.len });
     try generate.numbers(w, pool.items.items);
+    try w.writeAll("};\n\n/// The index of a code point's NFKC_Casefold, fully decomposed, in\n/// `casefolds`, where it is not its compatibility decomposition; 0 is none.\n");
+    try generate.writeShape(w, try generate.shape(gpa, casefold_index, 2, .smallest), "casefold", "u16");
+    try w.print("\n/// {d} bytes: the NFKC_Casefold mappings, as `classes.Mapping` bits into\n/// `pool`; an empty one removes the code point.\npub const casefolds = [{d}]u32{{\n", .{ casefolds.items.len * 4, casefolds.items.len });
+    try generate.numbers(w, casefolds.items);
     try w.writeAll("};\n\n/// `classes.QuickCheck` bits.\n");
     const qc = try gpa.alloc(u32, code_points);
     for (qc, quick) |*q, v| q.* = @as(u8, @bitCast(v));

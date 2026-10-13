@@ -465,3 +465,32 @@ pub fn normalized(gpa: std.mem.Allocator, comptime form: xenoglyph.normalize.For
     }
     return composed.toOwnedSlice(gpa);
 }
+
+/// The caseless matches' transforms (the Unicode Standard, D144, D145 and D147) the
+/// plain way: each step over the whole text, allocating, and the result in
+/// NFD (`.default` aside, which does not normalize), so two compare directly.
+pub fn caseless(gpa: std.mem.Allocator, comptime match: xenoglyph.case.Match, bytes: []const u8, options: xenoglyph.case.Options) ![]u21 {
+    const d: Decoded = try .init(gpa, bytes);
+    const nfd = try normalized(gpa, .nfd, d);
+    return switch (match) {
+        .default => folded(gpa, d.code_points, options),
+        .canonical => normalizedCodePoints(gpa, .nfd, try folded(gpa, nfd, options)),
+        .identifier => normalizedCodePoints(gpa, .nfd, try normalizedCodePoints(gpa, .nfkc_casefold, nfd)),
+    };
+}
+
+fn normalizedCodePoints(gpa: std.mem.Allocator, comptime form: xenoglyph.normalize.Form, cps: []const u21) ![]u21 {
+    return normalized(gpa, form, .{ .code_points = try gpa.dupe(u21, cps), .offsets = &.{} });
+}
+
+/// Full case folding of code points, through their UTF-8.
+fn folded(gpa: std.mem.Allocator, cps: []const u21, options: xenoglyph.case.Options) ![]u21 {
+    var text: std.ArrayList(u8) = .empty;
+    for (cps) |cp| {
+        var buffer: [4]u8 = undefined;
+        try text.appendSlice(gpa, buffer[0 .. std.unicode.utf8Encode(cp, &buffer) catch unreachable]); // unreachable: code points of decoded text are scalar values
+    }
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    try xenoglyph.case.write(.fold, text.items, &out.writer, options);
+    return (try Decoded.init(gpa, out.written())).code_points;
+}

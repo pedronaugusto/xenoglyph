@@ -87,9 +87,49 @@ fn eachLine(text: []const u8, comptime f: fn (*const Case, usize) anyerror!void)
     return cases;
 }
 
+/// Read backward, by `Iterator.prev` from the end and by `boundaryBefore`
+/// from every byte offset, a text gives exactly the boundaries `want` (the
+/// boundary before each code point, and at the end).
+fn expectBackward(comptime rules: grapheme.Rules, c: *const Case, want: []const bool, line: usize) !void {
+    const text = c.bytes();
+    var it: grapheme.Iterator(rules) = .initAt(text, .fromRaw(text.len));
+    var i = c.count;
+    while (i > 0) {
+        const span = it.prevSpan() orelse return error.TestUnexpectedResult;
+        const end = i;
+        i -= 1;
+        while (i > 0 and !want[i]) i -= 1;
+        if (!span.start.eql(.fromRaw(c.offsets[i])) or !span.end.eql(.fromRaw(c.offsets[end]))) {
+            std.debug.print("line {d}: backward, got {d}..{d}, want {d}..{d}\n", .{ line, span.start.raw(), span.end.raw(), c.offsets[i], c.offsets[end] });
+            return error.TestUnexpectedResult;
+        }
+        // Forward from the boundary, the cluster is the same.
+        if (!grapheme.boundaryAfter(text, span.start, rules).eql(span.end)) return error.TestUnexpectedResult;
+    }
+    try std.testing.expectEqual(null, it.prevSpan());
+    // From every byte offset, the boundary before is the last one before it.
+    var last: usize = 0;
+    for (1..text.len + 1) |offset| {
+        const k = for (0..c.count + 1) |k| {
+            if (c.offsets[k] >= offset) break k;
+        } else c.count;
+        if (k > 0 and c.offsets[k - 1] < offset) {
+            var j = k - 1;
+            while (j > 0 and !want[j]) j -= 1;
+            last = c.offsets[j];
+        }
+        const got = grapheme.boundaryBefore(text, .fromRaw(offset), rules).raw();
+        if (got != last) {
+            std.debug.print("line {d}: boundaryBefore({d}) = {d}, want {d}\n", .{ line, offset, got, last });
+            return error.TestUnexpectedResult;
+        }
+    }
+}
+
 fn graphemeCase(c: *const Case, line: usize) !void {
     var it: grapheme.Iterator(.{}) = .init(c.bytes());
     try expectSegments(c, &it, line);
+    try expectBackward(.{}, c, c.boundary[0 .. c.count + 1], line);
     // The breaker over code points agrees with the iterator.
     var b: grapheme.Breaker(.{}) = .{};
     for (c.code_points[0..c.count], 0..) |cp, i| {
@@ -100,7 +140,7 @@ fn graphemeCase(c: *const Case, line: usize) !void {
     }
 }
 
-test "GraphemeBreakTest.txt, every line" {
+test "GraphemeBreakTest.txt, every line, forward and backward" {
     const cases = try eachLine(ucd.grapheme_break_test, graphemeCase);
     try std.testing.expectEqual(853, cases);
 }
@@ -109,17 +149,21 @@ test "GraphemeBreakTest.txt, every line" {
 /// emoji modifier that does not follow an Emoji_Modifier_Base.
 fn modifierCase(c: *const Case, line: usize) !void {
     var b: grapheme.Breaker(.{ .modifiers = .after_base }) = .{};
+    var boundaries: [max_code_points + 1]bool = undefined;
     for (c.code_points[0..c.count], 0..) |cp, i| {
         var want = c.boundary[i];
         if (i > 0 and properties.emoji(cp).modifier and !properties.emoji(c.code_points[i - 1]).modifier_base) want = true;
+        boundaries[i] = want;
         if (b.next(cp) != want) {
             std.debug.print("line {d}: modifier tailoring at code point {d}\n", .{ line, i });
             return error.TestUnexpectedResult;
         }
     }
+    boundaries[c.count] = true;
+    try expectBackward(.{ .modifiers = .after_base }, c, boundaries[0 .. c.count + 1], line);
 }
 
-test "GraphemeBreakTest.txt under the emoji modifier tailoring" {
+test "GraphemeBreakTest.txt under the emoji modifier tailoring, forward and backward" {
     _ = try eachLine(ucd.grapheme_break_test, modifierCase);
 }
 
@@ -132,9 +176,10 @@ fn noControlCase(c: *const Case, line: usize) !void {
     };
     var it: grapheme.Iterator(.{ .controls = .as_other }) = .init(c.bytes());
     try expectSegments(c, &it, line);
+    try expectBackward(.{ .controls = .as_other }, c, c.boundary[0 .. c.count + 1], line);
 }
 
-test "GraphemeBreakTest.txt with controls read as Other" {
+test "GraphemeBreakTest.txt with controls read as Other, forward and backward" {
     _ = try eachLine(ucd.grapheme_break_test, noControlCase);
 }
 

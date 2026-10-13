@@ -5,7 +5,8 @@
 //! (Turkish, Azerbaijani) tailorings when `Options.language` asks for them.
 //!
 //! Nothing here allocates. `Iterator` yields the mapped code points;
-//! `write` writes them as UTF-8; the simple mappings are one lookup each.
+//! `write` writes them as UTF-8; the simple mappings are one lookup each;
+//! `equal` is each of the caseless matches the chapter defines.
 //! Ill-formed UTF-8 reads as U+FFFD, as everywhere in xenoglyph.
 const std = @import("std");
 const aegis = @import("aegis");
@@ -13,6 +14,7 @@ const classes = @import("classes.zig");
 const data = @import("data.zig");
 const utf8 = @import("utf8.zig");
 const normalize = @import("normalize.zig");
+const canonical = @import("canonical.zig");
 const word = @import("word.zig");
 
 const tables = data.casing;
@@ -91,6 +93,21 @@ fn special(cp: u21, mapping: Mapping) ?[]const u21 {
     };
     if (m.len == 0) return null;
     return tables.pool[m.start..][0..m.len];
+}
+
+/// The full case folding of `cp`, whose record is `r` (CaseFolding.txt C
+/// and F, and T for Turkic), in `buffer` or the special list. Folding reads
+/// no context.
+fn folded(cp: u21, r: classes.Case, language: Language, buffer: *[3]u21) []const u21 {
+    if (language == .turkic) switch (cp) {
+        'I' => buffer[0] = 0x131,
+        0x130 => buffer[0] = 'i',
+        else => {},
+    };
+    if (language == .turkic and (cp == 'I' or cp == 0x130)) return buffer[0..1];
+    if (r.special) if (special(cp, .fold)) |full| return full;
+    buffer[0] = shifted(cp, r.fold);
+    return buffer[0..1];
 }
 
 /// What the casing contexts read behind a position, carried forward.
@@ -236,10 +253,9 @@ pub fn Iterator(comptime mapping: Mapping) type {
                     if (language == .lithuanian and cp == 0x307 and it.behind.soft_dotted) return;
                     if (language == .turkic and cp == 'i') return it.emit(&.{0x130});
                 },
-                .fold => if (language == .turkic) switch (cp) {
-                    'I' => return it.emit(&.{0x131}),
-                    0x130 => return it.emit(&.{'i'}),
-                    else => {},
+                .fold => {
+                    var buffer: [3]u21 = undefined;
+                    return it.emit(folded(cp, r, language, &buffer));
                 },
             }
             if (r.special) if (special(cp, m)) |full| return it.emit(full);
@@ -259,17 +275,179 @@ pub fn write(comptime mapping: Mapping, text: []const u8, w: *std.Io.Writer, opt
     try utf8.encode(&it, w);
 }
 
-/// Whether `a` and `b` are equal under full case folding: the default
-/// caseless match. It does not normalize; normalize both first where
-/// canonically equivalent text must match.
-pub fn equalFold(a: []const u8, b: []const u8, options: Options) bool {
-    var x: Iterator(.fold) = .init(a, options);
-    var y: Iterator(.fold) = .init(b, options);
+/// The caseless matches of the Unicode Standard, chapter 3.13. Each is
+/// equality after a transform; toCasefold is full case folding.
+pub const Match = enum {
+    /// D144, default caseless match: toCasefold(X). Does not normalize, so
+    /// canonically equivalent texts can differ.
+    default,
+    /// D145, canonical caseless match: NFD(toCasefold(NFD(X))).
+    canonical,
+    /// D147, identifier caseless match: toNFKC_Casefold(NFD(X)), which also
+    /// ignores Default_Ignorable_Code_Point. NFKC_Casefold has no language
+    /// tailoring, so `Options.language` does not change it.
+    identifier,
+};
+
+/// Whether `a` and `b` match caselessly by `match`. `options.language`
+/// tailors the folding of `.default` and `.canonical` (Turkic dotted and
+/// dotless i).
+pub fn equal(comptime match: Match, a: []const u8, b: []const u8, options: Options) bool {
+    var x = matcher(match, a, options);
+    var y = matcher(match, b, options);
     while (true) {
         const p = x.next();
         if (p != y.next()) return false;
         if (p == null) return true;
     }
+}
+
+/// The transformed text a match compares, one code point at a time.
+fn Matcher(comptime match: Match) type {
+    return switch (match) {
+        .default => Iterator(.fold),
+        .canonical, .identifier => canonical.Canonical(Mapped(match), false),
+    };
+}
+
+fn matcher(comptime match: Match, text: []const u8, options: Options) Matcher(match) {
+    return switch (match) {
+        .default => .init(text, options),
+        .canonical, .identifier => .{ .source = .{ .bytes = text, .language = options.language } },
+    };
+}
+
+/// A text's canonical decomposition, each code point of it mapped (folded
+/// then decomposed for `.canonical`, NFKC_Casefold decomposed for
+/// `.identifier`), for the canonical ordering after it to put in NFD.
+///
+/// The definitions order the decomposition (the inner NFD) before mapping
+/// it. That ordering changes nothing a later ordering would not, since a
+/// non-starter maps to non-starters of its own class or to nothing, with one
+/// kind of exception: a non-starter that maps to starters (U+0345, the iota
+/// subscript, to U+03B9). Those are all of the highest combining class, 240,
+/// and map alike, so the inner NFD puts them last in their run; they are
+/// held here and given out where the run ends. The suite checks both facts
+/// for every code point. So one ordering does the work of two, and a long
+/// run costs a reading for each combining class in it, as normalizing does.
+fn Mapped(comptime match: Match) type {
+    return struct {
+        const Self = @This();
+
+        bytes: []const u8,
+        language: Language,
+        /// Private: where the next code point of the text starts.
+        at: usize = 0,
+        /// Private: the current code point's canonical decomposition, and
+        /// the next code point of it to map.
+        raw: [18]u21 = undefined,
+        raw_len: u8 = 0,
+        raw_index: u8 = 0,
+        /// Private: the mapping being given out.
+        out: [18]u21 = undefined,
+        len: u8 = 0,
+        index: u8 = 0,
+        /// Private: what the held non-starters map to, and how many are
+        /// held until their run ends.
+        held: [18]u21 = undefined,
+        held_len: u8 = 0,
+        held_count: usize = 0,
+        /// Private: how many code points it has given, which tells
+        /// positions apart.
+        given: usize = 0,
+
+        pub const Position = struct {
+            at: Self,
+
+            pub fn eql(a: Position, b: Position) bool {
+                return a.at.given == b.at.given;
+            }
+        };
+
+        pub fn position(s: *const Self) Position {
+            return .{ .at = s.* };
+        }
+
+        pub fn seek(s: *Self, p: Position) void {
+            s.* = p.at;
+        }
+
+        pub fn next(s: *Self) ?u21 {
+            while (s.index == s.len) {
+                if (s.raw_index == s.raw_len) {
+                    if (s.at >= s.bytes.len) {
+                        if (s.held_count == 0) return null;
+                        s.release();
+                        continue;
+                    }
+                    const d = utf8.decode(s.bytes[s.at..]);
+                    s.at += d.len;
+                    s.raw_len = length(normalize.decompose(d.code_point, .nfd, &s.raw).len);
+                    s.raw_index = 0;
+                }
+                const cp = s.raw[s.raw_index];
+                const class = normalize.combiningClass(cp);
+                // A starter ends the run: what was held goes before it.
+                if (class == 0 and s.held_count > 0) {
+                    s.release();
+                    continue;
+                }
+                s.raw_index += 1;
+                const image = s.map(cp);
+                s.index = 0;
+                s.len = length(image.len);
+                if (class != 0) for (image) |m| if (normalize.combiningClass(m) != class) {
+                    s.hold(image);
+                    break;
+                };
+            }
+            defer {
+                s.index += 1;
+                s.given += 1;
+            }
+            return s.out[s.index];
+        }
+
+        /// `cp` mapped and decomposed, in `out`.
+        fn map(s: *Self, cp: u21) []const u21 {
+            switch (match) {
+                .canonical => {
+                    var buffer: [3]u21 = undefined;
+                    var len: usize = 0;
+                    for (folded(cp, record(cp), s.language, &buffer)) |f| {
+                        var decomposed: [18]u21 = undefined;
+                        const d = normalize.decompose(f, .nfd, &decomposed);
+                        @memcpy(s.out[len..][0..d.len], d);
+                        len += d.len;
+                    }
+                    return s.out[0..len];
+                },
+                .identifier => return normalize.decompose(cp, .nfkc_casefold, &s.out),
+                .default => comptime unreachable, // unreachable: `.default` reads no decomposition
+            }
+        }
+
+        /// Holds a non-starter's mapping, `image`, in `out`, until its run ends.
+        fn hold(s: *Self, image: []const u21) void {
+            if (s.held_count == 0) {
+                @memcpy(s.held[0..image.len], image);
+                s.held_len = length(image.len);
+            } else aegis.assert.invariant(std.mem.eql(u21, s.held[0..s.held_len], image), "the non-starters held map alike");
+            s.held_count += 1;
+            s.len = 0;
+        }
+
+        fn release(s: *Self) void {
+            @memcpy(s.out[0..s.held_len], s.held[0..s.held_len]);
+            s.len = s.held_len;
+            s.index = 0;
+            s.held_count -= 1;
+        }
+
+        fn length(n: usize) u8 {
+            return aegis.int.narrow(u8, n) orelse aegis.assert.never("a mapping is at most 18 code points");
+        }
+    };
 }
 
 fn expectMapped(comptime mapping: Mapping, input: []const u8, want: []const u8, options: Options) !void {
@@ -289,7 +467,7 @@ test "mappings" {
     try expectMapped(.lower, "I\u{307}", "i", .{ .language = .turkic });
     try expectMapped(.lower, "DIYARBAKIR", "dıyarbakır", .{ .language = .turkic });
     try expectMapped(.lower, "\u{cc}", "i\u{307}\u{300}", .{ .language = .lithuanian });
-    try std.testing.expect(equalFold("Maße", "MASSE", .{}));
+    try std.testing.expect(equal(.default, "Maße", "MASSE", .{}));
     try std.testing.expectEqual('a', simpleLower('A'));
     try std.testing.expectEqual(0x1c5, simpleTitle(0x1c6));
 }
@@ -321,4 +499,27 @@ test "every conditional mapping of SpecialCasing.txt in its context" {
     try expectMapped(.title, "ilk", "\u{130}lk", tr);
     try expectMapped(.fold, "I\u{130}", "\u{131}i", tr);
     try expectMapped(.lower, "\u{130}", "i\u{307}", .{});
+}
+
+test "caseless matches" {
+    // Canonically equivalent, so they match from canonical up.
+    try std.testing.expect(!equal(.default, "A\u{30a}", "\u{e5}", .{}));
+    try std.testing.expect(equal(.canonical, "A\u{30a}", "\u{e5}", .{}));
+    try std.testing.expect(equal(.canonical, "\u{212b}", "a\u{30a}", .{}));
+    // The iota subscript folds to iota after the marks NFD puts before it.
+    try std.testing.expect(equal(.canonical, "\u{3b1}\u{345}\u{313}", "\u{1f00}\u{3b9}", .{}));
+    // Compatibility characters: a sign and a squared unit.
+    try std.testing.expect(!equal(.canonical, "\u{2122}", "tm", .{}));
+    try std.testing.expect(equal(.identifier, "\u{2122}", "tm", .{}));
+    try std.testing.expect(equal(.identifier, "\u{3392}", "mhz", .{}));
+    // Identifier: default ignorables are ignored too.
+    try std.testing.expect(!equal(.canonical, "pa\u{ad}ss", "PASS", .{}));
+    try std.testing.expect(equal(.identifier, "pa\u{ad}ss", "PASS", .{}));
+    try std.testing.expect(equal(.identifier, "\u{2160}", "i", .{}));
+    // What NFKC_Casefold maps a starter to can need ordering with the marks
+    // after it, and the iota subscript still folds after the marks before it.
+    try std.testing.expect(equal(.identifier, "\u{a8}\u{323}", " \u{323}\u{308}", .{}));
+    try std.testing.expect(equal(.identifier, "\u{3b1}\u{345}\u{313}", "\u{1f00}\u{3b9}", .{}));
+    try std.testing.expect(!equal(.identifier, "\u{3b1}\u{345}\u{313}", "\u{3b1}\u{1f30}", .{}));
+    try std.testing.expect(equal(.canonical, "I", "\u{131}", .{ .language = .turkic }));
 }

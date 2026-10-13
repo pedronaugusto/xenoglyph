@@ -51,6 +51,33 @@ pub inline fn read(bytes: []const u8) struct { index: u8, code_point: u21, len: 
     return .{ .index = clusterIndex(d.code_point), .code_point = d.code_point, .len = d.len };
 }
 
+/// The record index of the code point that holds byte `end - 1` of `bytes`
+/// (0 < `end` <= `bytes.len`), as decoding from the start of `bytes` reads
+/// it, and where that code point starts.
+pub inline fn readBefore(bytes: []const u8, end: usize) struct { index: u8, start: usize } {
+    const last = bytes[end - 1];
+    if (last < 0x80) return .{ .index = ascii_cluster_indexes[last], .start = end - 1 };
+    const start = codePointStart(bytes, end);
+    return .{ .index = clusterIndex(utf8.decode(bytes[start..]).code_point), .start = start };
+}
+
+/// Where the code point that holds byte `end - 1` starts, as decoding from
+/// the start of `bytes` finds it. A byte that is not a continuation byte
+/// always starts a code point, since every sequence and every maximal
+/// subpart starts with one and goes on only with continuation bytes; and a
+/// sequence is at most four bytes. So the start is the last such byte in
+/// the four before `end` when what it starts reaches `end - 1`, and
+/// otherwise `end - 1` itself, a continuation byte nothing claims.
+fn codePointStart(bytes: []const u8, end: usize) usize {
+    const floor = end -| 4;
+    var at = end;
+    while (at > floor) {
+        at -= 1;
+        if (bytes[at] & 0xc0 != 0x80) return if (at + utf8.decode(bytes[at..]).len >= end) at else end - 1;
+    }
+    return end - 1;
+}
+
 /// What the line breaking rules read of a code point, in one lookup.
 pub inline fn line(cp: u21) classes.Line {
     if (cp > max_code_point) return .{};

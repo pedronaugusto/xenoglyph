@@ -36,6 +36,17 @@ const Context = struct {
             }
         }.run;
     }
+
+    fn caseless(comptime match: xenoglyph.case.Match, comptime kind: corpus.Kind) fn (*Context, u64) WorkloadError!void {
+        return struct {
+            fn run(c: *Context, units: u64) WorkloadError!void {
+                for (0..units) |_| {
+                    const input = c.text(kind);
+                    std.mem.doNotOptimizeAway(xenoglyph.case.equal(match, input, input, .{}));
+                }
+            }
+        }.run;
+    }
 };
 
 const Row = shakedown.bench.Row(Context, WorkloadError);
@@ -46,10 +57,15 @@ const rows = [_]Row{
     .{ .name = "nfd of latin", .unit = "64KiB", .run = Context.normal(.nfd, .latin) },
     .{ .name = "nfkc of mixed", .unit = "64KiB", .run = Context.normal(.nfkc, .mixed) },
     .{ .name = "nfd of cjk", .unit = "64KiB", .run = Context.normal(.nfd, .cjk) },
+    .{ .name = "nfkc_casefold of mixed", .unit = "64KiB", .run = Context.normal(.nfkc_casefold, .mixed) },
+    .{ .name = "nfkc_casefold of latin", .unit = "64KiB", .run = Context.normal(.nfkc_casefold, .latin) },
     .{ .name = "lower ascii", .unit = "64KiB", .run = Context.mapped(.lower, .ascii) },
     .{ .name = "upper latin", .unit = "64KiB", .run = Context.mapped(.upper, .latin) },
     .{ .name = "fold mixed", .unit = "64KiB", .run = Context.mapped(.fold, .mixed) },
     .{ .name = "title mixed", .unit = "64KiB", .run = Context.mapped(.title, .mixed) },
+    .{ .name = "default caseless match of mixed", .unit = "64KiB", .run = Context.caseless(.default, .mixed) },
+    .{ .name = "canonical caseless match of mixed", .unit = "64KiB", .run = Context.caseless(.canonical, .mixed) },
+    .{ .name = "identifier caseless match of mixed", .unit = "64KiB", .run = Context.caseless(.identifier, .mixed) },
 };
 
 pub fn main(init: std.process.Init) !void {
