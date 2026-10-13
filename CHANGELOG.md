@@ -26,6 +26,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   its property's values in every build mode, as are the narrowings in case
   mapping and decomposition.
 - The source checks gate glint's aegis rules A001 to A004.
+- The release tier runs preflight's hardened profile: the suite with safety on,
+  a bounded fuzz campaign over its properties, and ThreadSanitizer on Linux. `bay
+  unit` runs the suite alone.
 
 ## [0.1.1] - 2026-10-13
 

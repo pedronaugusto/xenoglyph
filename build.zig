@@ -67,7 +67,11 @@ pub fn dev(b: *std.Build, tools: type) void {
     });
     const check = b.step("check", "Compile the tests, library, example and benchmarks without running them");
     const test_step = b.step("test", "Run the tests, the example and the table check");
-    test_step.dependOn(&b.addRunArtifact(tests).step);
+    const unit_run = b.addRunArtifact(tests);
+    test_step.dependOn(&unit_run.step);
+    // The suite alone, every binary of it holding properties: what the
+    // hardened profile fuzzes and runs under ThreadSanitizer.
+    b.step("unit", "Run the xenoglyph suite alone").dependOn(&unit_run.step);
     test_step.dependOn(check_tables);
     check.dependOn(&tests.step);
     check.dependOn(&library.step);
@@ -100,6 +104,9 @@ pub fn dev(b: *std.Build, tools: type) void {
     tools.preflight.addCi(b, p, .{
         .tests = test_step,
         .portable_tests = true,
+        // The release tier runs the suite with safety on, fuzzes its
+        // properties and runs it under ThreadSanitizer.
+        .hardened = .{ .fuzz_step = "unit", .tsan_step = "unit" },
         .bench = .{
             .programs = &.{
                 .{ .name = "segment", .source = "bench/segment.zig" },
