@@ -20,6 +20,7 @@ pub fn main() !void {
     properties();
     stream();
     lines();
+    try transform();
 }
 
 fn words() void {
@@ -53,6 +54,24 @@ fn properties() void {
     // Code points shared by scripts list them all.
     std.debug.assert(xenoglyph.scriptExtensions(0x0964).len > 1);
     // --- README:properties ---
+}
+
+fn transform() !void {
+    // --- README:transform ---
+    var out: [64]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&out);
+    // "e" and a combining acute compose to "é"; "ﬁ" stays, as it is canonical.
+    try xenoglyph.normalize.write(.nfc, "cafe\u{301} \u{fb01}", &w);
+    std.debug.assert(std.mem.eql(u8, w.buffered(), "caf\u{e9} \u{fb01}"));
+    std.debug.assert(xenoglyph.normalize.equal(.nfkc, "\u{fb01}", "fi"));
+    w = .fixed(&out);
+    try xenoglyph.case.write(.upper, "stra\u{df}e", &w, .{});
+    std.debug.assert(std.mem.eql(u8, w.buffered(), "STRASSE"));
+    std.debug.assert(xenoglyph.case.equalFold("Ma\u{df}e", "MASSE", .{}));
+    w = .fixed(&out);
+    try xenoglyph.case.write(.lower, "D\u{130}YARBAKIR", &w, .{ .language = .turkic });
+    std.debug.assert(std.mem.eql(u8, w.buffered(), "diyarbak\u{131}r"));
+    // --- README:transform ---
 }
 
 fn lines() void {

@@ -239,3 +239,91 @@ fn stdDecode(bytes: []const u8) !u21 {
         else => error.Utf8InvalidStartByte,
     };
 }
+
+/// Marks of many classes, some that compose, joiners, Hangul jamo and
+/// syllables, compatibility characters, and a few letters.
+const marks = [_]u21{ 0x300, 0x301, 0x302, 0x303, 0x307, 0x308, 0x30a, 0x323, 0x327, 0x328, 0x331, 0x345, 0x5b0, 0x5bf, 0x93c, 0x94d, 0xe38, 0x1dce, 0x302a, 0x302b, 0x1d167, 0x344, 0xf73, 0xf75 };
+const bases = [_]u21{ 'a', 'e', 'o', 'A', 0x3b1, 0x3b9, 0x928, 0x1100, 0x1161, 0x11a8, 0xac00, 0xac01, 0x1e0b, 0x212b, 0xfb01, 0x2460, 0xfdfa, 0x1f1, 0xb47, 0xb3e };
+
+fn markText(case: *shakedown.Case) ![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    // Runs of a base and up to 100 marks, so some pass the 32 a run holds
+    // in the iterator's buffer.
+    while (out.items.len < 1200 and case.source.more(3)) {
+        var buffer: [4]u8 = undefined;
+        var len = std.unicode.utf8Encode(gen.oneOf(case.source, u21, &bases), &buffer) catch unreachable; // unreachable: the list holds scalar values
+        if (gen.boolean(case.source)) try out.appendSlice(case.gpa, buffer[0..len]);
+        for (0..gen.intRange(case.source, u8, 0, 100)) |_| {
+            len = std.unicode.utf8Encode(gen.oneOf(case.source, u21, &marks), &buffer) catch unreachable; // unreachable: the list holds scalar values
+            try out.appendSlice(case.gpa, buffer[0..len]);
+        }
+    }
+    return out.items;
+}
+
+fn normalForms(_: void, case: *shakedown.Case) anyerror!void {
+    const bytes = if (gen.boolean(case.source)) try markText(case) else try text(case);
+    case.note("text: {any}", .{bytes});
+    const decoded: oracle.Decoded = try .init(case.gpa, bytes);
+    inline for (.{ .nfd, .nfc, .nfkd, .nfkc }) |form| {
+        const want = try oracle.normalized(case.gpa, form, decoded);
+        var it: xenoglyph.normalize.Iterator(form) = .init(bytes);
+        for (want) |w| try std.testing.expectEqual(@as(?u21, w), it.next());
+        try std.testing.expectEqual(null, it.next());
+        // `write`, a region between ASCII bytes at a time, gives the same.
+        var out: std.Io.Writer.Allocating = .init(case.gpa);
+        try xenoglyph.normalize.write(form, bytes, &out.writer);
+        var written: utf8.Iterator = .init(out.written());
+        for (want) |w| try std.testing.expectEqual(@as(?u21, w), written.next());
+        try std.testing.expectEqual(null, written.next());
+        try std.testing.expectEqual(std.mem.eql(u8, bytes, out.written()), xenoglyph.normalize.isNormalized(form, bytes));
+    }
+}
+
+test "normal forms of any text, long runs of marks included, are the algorithm done plainly" {
+    try shakedown.check(std.testing.allocator, {}, normalForms, .{ .cases = 1500 });
+}
+
+/// Letters with special casings and the marks their contexts read.
+const casing = [_]u21{ 'I', 'i', 'J', 0x130, 0x131, 0x307, 0x301, 0x323, 0x3a3, 0x3c3, 0x391, '.', ' ', 0xdf, 0x1e9e, 0xfb01, 0x149, 0x390, 0x1f88, 0x1c4, 0x1c5, 0x1c6, 0x12e, 0xcc, 0x345, 0x10d0, 0x1c90, 0x2c65, 0xa7c6 };
+
+fn caseText(case: *shakedown.Case) ![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    while (out.items.len < 200 and case.source.more(16)) {
+        if (gen.boolean(case.source)) {
+            var buffer: [4]u8 = undefined;
+            const len = std.unicode.utf8Encode(gen.oneOf(case.source, u21, &casing), &buffer) catch unreachable; // unreachable: the list holds scalar values
+            try out.appendSlice(case.gpa, buffer[0..len]);
+        } else try piece(case.source, &out, case.gpa);
+    }
+    return out.items;
+}
+
+fn caseOf(comptime mapping: xenoglyph.case.Mapping, gpa: std.mem.Allocator, bytes: []const u8, options: xenoglyph.case.Options) ![]const u8 {
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    try xenoglyph.case.write(mapping, bytes, &out.writer, options);
+    // The writer gives what the iterator gives.
+    var it: xenoglyph.case.Iterator(mapping) = .init(bytes, options);
+    var again: utf8.Iterator = .init(out.written());
+    while (it.next()) |cp| try std.testing.expectEqual(@as(?u21, cp), again.next());
+    try std.testing.expectEqual(null, again.next());
+    return out.written();
+}
+
+fn caseMappings(_: void, case: *shakedown.Case) anyerror!void {
+    const bytes = try caseText(case);
+    case.note("text: {any}", .{bytes});
+    inline for (.{ .none, .turkic, .lithuanian }) |language| {
+        const options: xenoglyph.case.Options = .{ .language = language };
+        inline for (.{ .fold, .lower, .upper }) |mapping| {
+            const once = try caseOf(mapping, case.gpa, bytes, options);
+            try std.testing.expectEqualStrings(once, try caseOf(mapping, case.gpa, once, options));
+        }
+        _ = try caseOf(.title, case.gpa, bytes, options);
+        try std.testing.expect(xenoglyph.case.equalFold(bytes, try caseOf(.fold, case.gpa, bytes, options), options));
+    }
+}
+
+test "folding, lowercasing and uppercasing any text are idempotent in every language" {
+    try shakedown.check(std.testing.allocator, {}, caseMappings, .{ .cases = 1000 });
+}

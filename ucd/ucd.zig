@@ -20,3 +20,7 @@ pub const scripts = @embedFile("Scripts.txt");
 pub const script_extensions = @embedFile("ScriptExtensions.txt");
 pub const property_value_aliases = @embedFile("PropertyValueAliases.txt");
 pub const line_break_test = @embedFile("auxiliary/LineBreakTest.txt");
+pub const normalization_test = @embedFile("NormalizationTest.txt");
+pub const unicode_data = @embedFile("UnicodeData.txt");
+pub const special_casing = @embedFile("SpecialCasing.txt");
+pub const case_folding = @embedFile("CaseFolding.txt");

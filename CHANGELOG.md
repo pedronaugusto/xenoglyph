@@ -10,6 +10,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Line break opportunities (UAX #14) of Unicode 18.0.0: `lines`, `line.Iterator`,
   whose `nextBreak` says where a break is mandatory.
+- Normalization (UAX #15): `normalize.write`, `normalize.Iterator`,
+  `isNormalized`, `quickCheck`, `equal`, `combiningClass`, `decompose` and `compose`,
+  for NFD, NFC, NFKD and NFKC, exact for any input with no allocation.
+- Case mapping and folding: `case.write`, `case.Iterator` and `case.equalFold` for
+  lowercase, uppercase, titlecase and full folding, with Final_Sigma and the
+  Lithuanian and Turkic tailorings; `simpleLower`, `simpleUpper`, `simpleTitle`
+  and `simpleFold`.
 
 ## [0.1.0] - 2026-10-13
 

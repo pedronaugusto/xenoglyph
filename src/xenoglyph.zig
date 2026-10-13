@@ -9,6 +9,8 @@ pub const word = @import("word.zig");
 pub const sentence = @import("sentence.zig");
 pub const width = @import("width.zig");
 pub const line = @import("line.zig");
+pub const normalize = @import("normalize.zig");
+pub const case = @import("case.zig");
 pub const properties = @import("properties.zig");
 
 pub const unicode_version = properties.unicode_version;

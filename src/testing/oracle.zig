@@ -413,3 +413,55 @@ fn lineDecision(written: []const classes.Line, items: []const LineItem, item_of:
     if (rc == .e_modifier and (l == .e_base or left.pictographic_unassigned)) return .prohibited; // LB30b
     return .allowed; // LB31
 }
+
+/// Normalization (UAX #15) the plain way, allocating: decompose everything,
+/// sort each run of non-starters by combining class (stably), then compose
+/// each code point with the last starter before it unless something between
+/// blocks it, looking the whole sequence over each time.
+pub fn normalized(gpa: std.mem.Allocator, comptime form: xenoglyph.normalize.Form, d: Decoded) ![]u21 {
+    const n = xenoglyph.normalize;
+    var out: std.ArrayList(u21) = .empty;
+    for (d.code_points) |cp| {
+        var buffer: [18]u21 = undefined;
+        try out.appendSlice(gpa, n.decompose(cp, form, &buffer));
+    }
+    const s = out.items;
+    var i: usize = 0;
+    while (i < s.len) {
+        if (n.combiningClass(s[i]) == 0) {
+            i += 1;
+            continue;
+        }
+        var j = i;
+        while (j < s.len and n.combiningClass(s[j]) != 0) j += 1;
+        std.sort.insertion(u21, s[i..j], {}, struct {
+            fn less(_: void, a: u21, b: u21) bool {
+                return n.combiningClass(a) < n.combiningClass(b);
+            }
+        }.less);
+        i = j;
+    }
+    if (form == .nfd or form == .nfkd) return out.toOwnedSlice(gpa);
+    var composed: std.ArrayList(u21) = .empty;
+    for (s) |cp| {
+        // The last starter, and whether anything between it and `cp` blocks.
+        var k = composed.items.len;
+        var blocked = false;
+        while (k > 0) {
+            k -= 1;
+            const class = n.combiningClass(composed.items[k]);
+            if (class == 0) break;
+            if (class >= n.combiningClass(cp)) blocked = true;
+        }
+        const has_starter = composed.items.len > 0 and n.combiningClass(composed.items[k]) == 0;
+        const adjacent = k + 1 == composed.items.len;
+        if (has_starter and !blocked and (n.combiningClass(cp) != 0 or adjacent)) {
+            if (n.compose(composed.items[k], cp)) |c| {
+                composed.items[k] = c;
+                continue;
+            }
+        }
+        try composed.append(gpa, cp);
+    }
+    return composed.toOwnedSlice(gpa);
+}

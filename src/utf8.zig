@@ -4,6 +4,7 @@
 //! maximal subparts", chapter 3.9). A byte that ends an ill-formed sequence
 //! by not continuing it is where the next code point starts, so
 //! `"\xe4\xb8a"` is U+FFFD then `a`.
+const std = @import("std");
 
 /// U+FFFD REPLACEMENT CHARACTER, what an ill-formed subpart decodes to.
 pub const replacement: u21 = 0xfffd;
@@ -104,4 +105,19 @@ pub fn printableAscii(bytes: []const u8) bool {
     }
     for (bytes[i..]) |b| if (b < 0x20 or b > 0x7e) return false;
     return true;
+}
+
+/// Writes the code points an iterator gives (anything with `next() ?u21`)
+/// as UTF-8, a buffer at a time.
+pub fn encode(it: anytype, w: *std.Io.Writer) std.Io.Writer.Error!void {
+    var buffer: [256]u8 = undefined;
+    var len: usize = 0;
+    while (it.next()) |cp| {
+        if (len + 4 > buffer.len) {
+            try w.writeAll(buffer[0..len]);
+            len = 0;
+        }
+        len += std.unicode.utf8Encode(cp, buffer[len..]) catch unreachable; // unreachable: the iterators give scalar values
+    }
+    try w.writeAll(buffer[0..len]);
 }

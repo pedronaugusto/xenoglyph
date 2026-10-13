@@ -100,6 +100,7 @@ pub fn dev(b: *std.Build, tools: type) void {
             .programs = &.{
                 .{ .name = "segment", .source = "bench/segment.zig" },
                 .{ .name = "width", .source = "bench/width.zig" },
+                .{ .name = "transform", .source = "bench/transform.zig" },
             },
             .imports = benchImports,
             .target = target,

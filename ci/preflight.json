@@ -48,6 +48,13 @@
       "imports": [
         "xenoglyph"
       ]
+    },
+    "zig build docs -- transform": {
+      "source": "examples/usage.zig",
+      "region": "transform",
+      "imports": [
+        "xenoglyph"
+      ]
     }
   },
   "extra_checks": [

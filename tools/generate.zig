@@ -14,9 +14,10 @@
 //! of the distinct values, when there are at most 256 of them.
 const std = @import("std");
 const classes = @import("classes");
+const mappings = @import("mappings.zig");
 
 const Allocator = std.mem.Allocator;
-const code_points = 0x110000;
+pub const code_points = 0x110000;
 
 const version = "18.0.0";
 
@@ -105,6 +106,9 @@ fn generate(gpa: Allocator, ucd: Ucd) ![]const File {
     try files.append(gpa, .{ .name = "core.zig", .bytes = try coreFile(gpa, p) });
     try files.append(gpa, .{ .name = "script.zig", .bytes = try scriptFile(gpa, p, aliases) });
     try files.append(gpa, .{ .name = "wrapping.zig", .bytes = try lineFile(gpa, p) });
+    const ud = try mappings.UnicodeData.read(gpa, ucd);
+    try files.append(gpa, .{ .name = "normalization.zig", .bytes = try mappings.normalizationFile(gpa, ucd, ud) });
+    try files.append(gpa, .{ .name = "casing.zig", .bytes = try mappings.caseFile(gpa, ucd, p, ud) });
     for (files.items) |*file| file.bytes = try formatted(gpa, file.name, file.bytes);
     return files.toOwnedSlice(gpa);
 }
@@ -112,12 +116,12 @@ fn generate(gpa: Allocator, ucd: Ucd) ![]const File {
 // ---------------------------------------------------------------------------
 // Reading the UCD
 
-const Ucd = struct {
+pub const Ucd = struct {
     dir: std.Io.Dir,
     io: std.Io,
     gpa: Allocator,
 
-    fn read(u: Ucd, path: []const u8) ![]const u8 {
+    pub fn read(u: Ucd, path: []const u8) ![]const u8 {
         return u.dir.readFileAlloc(u.io, path, u.gpa, .limited(64 << 20)) catch |err| {
             std.log.err("ucd/{s}: {t}", .{ path, err });
             return err;
@@ -127,25 +131,25 @@ const Ucd = struct {
 
 /// One data line: its first and last code point and its fields after the
 /// first, trimmed. Comments and blank lines are skipped.
-const Line = struct {
+pub const Line = struct {
     first: u21,
     last: u21,
     fields: [4][]const u8,
     count: usize,
 
-    fn field(l: Line, i: usize) []const u8 {
+    pub fn field(l: Line, i: usize) []const u8 {
         return if (i < l.count) l.fields[i] else "";
     }
 };
 
-const Lines = struct {
+pub const Lines = struct {
     rest: std.mem.SplitIterator(u8, .scalar),
 
-    fn init(text: []const u8) Lines {
+    pub fn init(text: []const u8) Lines {
         return .{ .rest = std.mem.splitScalar(u8, text, '\n') };
     }
 
-    fn next(it: *Lines) !?Line {
+    pub fn next(it: *Lines) !?Line {
         while (it.rest.next()) |raw| {
             const data = if (std.mem.findScalar(u8, raw, '#')) |hash| raw[0..hash] else raw;
             const line = trim(data);
@@ -171,7 +175,7 @@ const Lines = struct {
     }
 };
 
-fn trim(s: []const u8) []const u8 {
+pub fn trim(s: []const u8) []const u8 {
     return std.mem.trim(u8, s, " \t\r");
 }
 
@@ -236,7 +240,7 @@ const Aliases = struct {
 };
 
 /// Every property xenoglyph tabulates, one entry per code point.
-const Properties = struct {
+pub const Properties = struct {
     general_category: []classes.GeneralCategory,
     east_asian_width: []classes.EastAsianWidth,
     grapheme_break: []classes.GraphemeBreak,
@@ -351,7 +355,7 @@ const Properties = struct {
     }
 };
 
-fn filled(gpa: Allocator, comptime T: type, value: T) ![]T {
+pub fn filled(gpa: Allocator, comptime T: type, value: T) ![]T {
     const s = try gpa.alloc(T, code_points);
     @memset(s, value);
     return s;
@@ -427,7 +431,7 @@ fn clusterOf(p: Properties, cp: usize) classes.Cluster {
 /// How a table is laid out: two stages (`top` indexes blocks of `entries`
 /// directly) or three (`top` indexes runs of `middle`, which index blocks
 /// of `entries`).
-const Shape = struct {
+pub const Shape = struct {
     middle_shift: u5,
     leaf_shift: u5,
     top: []const u32,
@@ -452,10 +456,10 @@ const Shape = struct {
     }
 };
 
-const Stages = enum { two, smallest };
+pub const Stages = enum { two, smallest };
 
 /// The smallest table of `values` (one per code point) of the shapes `stages` allows.
-fn shape(gpa: Allocator, values: []const u32, entry_bytes: usize, allowed: Stages) !Shape {
+pub fn shape(gpa: Allocator, values: []const u32, entry_bytes: usize, allowed: Stages) !Shape {
     var best: ?Shape = null;
     var leaf: u5 = 3;
     while (leaf <= 10) : (leaf += 1) {
@@ -498,7 +502,7 @@ fn typeFor(bytes: usize) []const u8 {
 }
 
 /// Writes the table `name` of shape `s`, whose entries are `entry`s.
-fn writeShape(w: *std.Io.Writer, s: Shape, name: []const u8, entry: []const u8) !void {
+pub fn writeShape(w: *std.Io.Writer, s: Shape, name: []const u8, entry: []const u8) !void {
     const top = typeFor(s.topBytes());
     if (s.three()) {
         const middle = typeFor(Shape.bytesFor(s.entries.len >> s.leaf_shift));
@@ -519,11 +523,11 @@ fn writeShape(w: *std.Io.Writer, s: Shape, name: []const u8, entry: []const u8) 
     try w.writeAll("};\n");
 }
 
-fn numbers(w: *std.Io.Writer, values: []const u32) !void {
+pub fn numbers(w: *std.Io.Writer, values: anytype) !void {
     var column: usize = 0;
     for (values) |v| {
-        var buffer: [16]u8 = undefined;
-        const text = std.mem.print(&buffer, "{d},", .{v}) catch unreachable; // unreachable: a u32 and a comma fit 16 bytes
+        var buffer: [48]u8 = undefined;
+        const text = std.mem.print(&buffer, "{d},", .{v}) catch unreachable; // unreachable: a u128 and a comma fit 48 bytes
         if (column == 0) {
             try w.writeAll("   ");
             column = 3;
@@ -539,7 +543,7 @@ fn numbers(w: *std.Io.Writer, values: []const u32) !void {
     if (column != 0) try w.writeAll("\n");
 }
 
-fn header(w: *std.Io.Writer, what: []const u8, sources: []const u8) !void {
+pub fn header(w: *std.Io.Writer, what: []const u8, sources: []const u8) !void {
     try w.print(
         \\//! {s}, from the Unicode Character Database {s} ({s}).
         \\//!
@@ -575,10 +579,22 @@ fn emojiFile(gpa: Allocator, p: Properties) ![]const u8 {
 }
 
 /// A table of `Record`s too wide for a byte: each entry indexes `records`.
-fn recordFile(gpa: Allocator, comptime Record: type, allowed: Stages, what: []const u8, sources: []const u8, values: []const Record) ![]const u8 {
+pub fn recordFile(gpa: Allocator, comptime Record: type, allowed: Stages, what: []const u8, sources: []const u8, values: []const Record) ![]const u8 {
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    const w = &out.writer;
+    try header(w, what, sources);
+    try w.writeAll("\n");
+    try recordTable(gpa, Record, allowed, values, w, "table", "records");
+    return out.toOwnedSlice();
+}
+
+/// Writes the table `name` of `Record`s (one per code point), each entry the
+/// index of its record in `records_name`: a byte when there are at most 256
+/// distinct records, two bytes otherwise.
+pub fn recordTable(gpa: Allocator, comptime Record: type, allowed: Stages, values: []const Record, w: *std.Io.Writer, name: []const u8, records_name: []const u8) !void {
     const Bits = @typeInfo(Record).@"struct".backing_integer.?;
     var index: std.AutoHashMapUnmanaged(Bits, u32) = .empty;
-    var records: std.ArrayList(u32) = .empty;
+    var records: std.ArrayList(Bits) = .empty;
     const raw = try gpa.alloc(u32, code_points);
     for (values, raw) |v, *r| {
         const bits: Bits = @bitCast(v);
@@ -589,16 +605,12 @@ fn recordFile(gpa: Allocator, comptime Record: type, allowed: Stages, what: []co
         }
         r.* = got.value_ptr.*;
     }
-    if (records.items.len > 256) return error.TooManyRecords;
-    var out: std.Io.Writer.Allocating = .init(gpa);
-    const w = &out.writer;
-    try header(w, what, sources);
-    try w.writeAll("\n");
-    try writeShape(w, try shape(gpa, raw, 1, allowed), "table", "u8");
-    try w.print("\n/// {d} bytes: the distinct records, which an entry indexes.\npub const records = [{d}]u{d}{{\n", .{ records.items.len * @sizeOf(Bits), records.items.len, @bitSizeOf(Bits) });
+    if (records.items.len > 65536) return error.TooManyRecords;
+    const wide = records.items.len > 256;
+    try writeShape(w, try shape(gpa, raw, if (wide) 2 else 1, allowed), name, if (wide) "u16" else "u8");
+    try w.print("\n/// {d} bytes: the distinct records, which an entry indexes.\npub const {s} = [{d}]u{d}{{\n", .{ records.items.len * @sizeOf(Bits), records_name, records.items.len, @bitSizeOf(Bits) });
     try numbers(w, records.items);
     try w.writeAll("};\n");
-    return out.toOwnedSlice();
 }
 
 fn clusterFile(gpa: Allocator, p: Properties) ![]const u8 {

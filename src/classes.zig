@@ -304,3 +304,59 @@ pub const Line = packed struct(u16) {
     dotted_circle: bool = false,
     _: u5 = 0,
 };
+
+/// A run of code points in a generated pool.
+pub const Mapping = packed struct(u32) {
+    start: u16 = 0,
+    len: u8 = 0,
+    _: u8 = 0,
+};
+
+/// A code point's full decompositions (UAX #15): canonical, and
+/// compatibility (canonical and compatibility mappings applied until none
+/// applies). A code point with no compatibility mapping of its own still
+/// has a compatibility decomposition where its canonical one reaches one.
+/// An empty mapping is the code point itself.
+pub const Decomposition = packed struct(u64) {
+    canonical: Mapping = .{},
+    compatibility: Mapping = .{},
+};
+
+/// The quick check properties of DerivedNormalizationProps.txt: whether a
+/// code point can occur in a normalized text (Yes, the zero value), cannot
+/// (No), or can depending on what precedes it (Maybe).
+pub const QuickCheck = packed struct(u8) {
+    nfd_no: bool = false,
+    nfkd_no: bool = false,
+    nfc_no: bool = false,
+    nfc_maybe: bool = false,
+    nfkc_no: bool = false,
+    nfkc_maybe: bool = false,
+    _: u2 = 0,
+};
+
+/// A code point's simple case mappings as differences from it, and what the
+/// casing rules read of it.
+pub const Case = packed struct(u128) {
+    lower: i24 = 0,
+    upper: i24 = 0,
+    title: i24 = 0,
+    /// Simple case folding (CaseFolding.txt C and S).
+    fold: i24 = 0,
+    /// A full mapping of SpecialCasing.txt or CaseFolding.txt (F) differs
+    /// from the simple one: look it up in the special list.
+    special: bool = false,
+    cased: bool = false,
+    case_ignorable: bool = false,
+    soft_dotted: bool = false,
+    _: u28 = 0,
+};
+
+/// The full mappings of a code point whose `Case.special` is set; an empty
+/// mapping is the simple one.
+pub const Special = packed struct(u128) {
+    lower: Mapping = .{},
+    upper: Mapping = .{},
+    title: Mapping = .{},
+    fold: Mapping = .{},
+};

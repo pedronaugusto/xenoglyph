@@ -5,7 +5,11 @@ test {
     _ = @import("sentence.zig");
     _ = @import("width.zig");
     _ = @import("line.zig");
+    _ = @import("normalize.zig");
+    _ = @import("case.zig");
     _ = @import("testing/conformance_test.zig");
     _ = @import("testing/properties_test.zig");
     _ = @import("testing/fuzz_test.zig");
+    _ = @import("testing/normalize_test.zig");
+    _ = @import("testing/case_test.zig");
 }

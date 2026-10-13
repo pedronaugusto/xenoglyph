@@ -10,3 +10,5 @@ pub const emoji = @import("data/emoji.zig");
 pub const core = @import("data/core.zig");
 pub const script = @import("data/script.zig");
 pub const wrapping = @import("data/wrapping.zig");
+pub const normalization = @import("data/normalization.zig");
+pub const casing = @import("data/casing.zig");

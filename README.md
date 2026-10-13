@@ -1,13 +1,13 @@
 # xenoglyph
 
 xenoglyph handles Unicode text in Zig: grapheme clusters, words and sentences
-(UAX #29), line break opportunities (UAX #14), how many terminal cells text
-takes, and the character properties those rest on, from the Unicode Character Database 18.0.0. Nothing in it
+(UAX #29), line break opportunities (UAX #14), normalization (UAX #15), case
+mapping and folding, how many terminal cells text takes, and the character
+properties those rest on, from the Unicode Character Database 18.0.0. Nothing in it
 allocates, nothing holds global state, and every call builds for a target with
 no operating system.
 
-Work in progress. Normalization (UAX #15) and case mapping are not here yet;
-see [Scope](#scope).
+Work in progress.
 
 ## Install
 
@@ -102,6 +102,28 @@ for ([_][]const u8{ "A ", "(quick) ", "test", "\u{2014}", "costs ", "$12.50.\n" 
 ```
 <!-- END GENERATED -->
 
+Normal forms and case, written to any `std.Io.Writer`:
+
+<!-- BEGIN GENERATED zig build docs -- transform -->
+```zig
+const xenoglyph = @import("xenoglyph");
+
+var out: [64]u8 = undefined;
+var w: std.Io.Writer = .fixed(&out);
+// "e" and a combining acute compose to "é"; "ﬁ" stays, as it is canonical.
+try xenoglyph.normalize.write(.nfc, "cafe\u{301} \u{fb01}", &w);
+std.debug.assert(std.mem.eql(u8, w.buffered(), "caf\u{e9} \u{fb01}"));
+std.debug.assert(xenoglyph.normalize.equal(.nfkc, "\u{fb01}", "fi"));
+w = .fixed(&out);
+try xenoglyph.case.write(.upper, "stra\u{df}e", &w, .{});
+std.debug.assert(std.mem.eql(u8, w.buffered(), "STRASSE"));
+std.debug.assert(xenoglyph.case.equalFold("Ma\u{df}e", "MASSE", .{}));
+w = .fixed(&out);
+try xenoglyph.case.write(.lower, "D\u{130}YARBAKIR", &w, .{ .language = .turkic });
+std.debug.assert(std.mem.eql(u8, w.buffered(), "diyarbak\u{131}r"));
+```
+<!-- END GENERATED -->
+
 A `Breaker` takes code points one at a time, for text that arrives in pieces:
 
 <!-- BEGIN GENERATED zig build docs -- stream -->
@@ -175,6 +197,32 @@ linear. The iterator carries that context from one segment to the next, since
 LB15a, LB19a, LB20a and LB21a read the item before a break. Fitting segments to
 a width is the caller's: `width.string` measures each.
 
+### Normalization
+
+NFD, NFC, NFKD and NFKC follow UAX #15 for Unicode 18.0.0: full decomposition
+(Hangul by the algorithm of chapter 3.12), canonical ordering, and canonical
+composition with its blocking rule and the composition exclusions. `write`
+normalizes a region at a time: a position before an ASCII byte is a boundary
+normalization never crosses, since an ASCII character is a starter that
+composes with nothing before it, so ASCII runs and regions the quick check
+passes are copied as they are. Within a region, a run of a starter and the
+non-starters after it is ordered and composed in a buffer of 32 code points.
+A longer run, which only text that is not stream-safe has, is ordered by
+reading it again once for each combining class it holds, and for the composed
+forms its compositions are worked out the same way, so every input normalizes
+exactly and nothing is allocated, at a cost proportional to the run and the
+classes in it.
+
+### Case
+
+Lowercase, uppercase, titlecase and case folding follow chapter 3.13 of the
+Unicode Standard: full mappings (`ß` uppercases to `SS`, `ﬁ` folds to `fi`), the
+Final_Sigma context always, and SpecialCasing.txt's Lithuanian and Turkic
+tailorings when `Options.language` names them. Titlecase maps the first cased
+letter of each UAX #29 word to titlecase and everything else to lowercase.
+`equalFold` is the default caseless match: equal after full folding, without
+normalizing.
+
 ### Width
 
 Unicode defines no cell width; terminals do. `width` states its model as rules.
@@ -227,6 +275,8 @@ The UCD files are in the repository and outside what the package ships.
 | Script_Extensions | 4,016 |
 | Derived core properties | 20,404 |
 | Line breaking records (resolved class and the flags the rules read) | 36,348 |
+| Normalization: combining classes, decompositions and their code points, compositions, quick checks | 120,340 |
+| Case: simple mappings and the flags the contexts read, full mappings | 19,216 |
 | Line_Break | 19,136 |
 | Sentence_Break | 16,736 |
 | Word_Break | 13,520 |
@@ -246,6 +296,12 @@ costs the first, 34 KB.
 | `words(text)`, `word.isWordLike(segment)` | Words and the runs between them; whether a segment is a word |
 | `sentences(text)` | Sentences |
 | `lines(text)`, `line.Iterator.nextBreak()` | Line break opportunities, each with whether the break is mandatory |
+| `normalize.write(form, text, writer)`, `normalize.Iterator(form)` | NFD, NFC, NFKD or NFKC of a text |
+| `normalize.isNormalized`, `normalize.quickCheck`, `normalize.equal` | Whether a text is in a form; UAX #15's quick check; whether two texts have the same normal form |
+| `normalize.combiningClass`, `normalize.decompose`, `normalize.compose` | Canonical_Combining_Class, a code point's full decomposition, a primary composite |
+| `case.write(mapping, text, writer, options)`, `case.Iterator(mapping)` | Lowercase, uppercase, titlecase or full case folding of a text |
+| `case.equalFold(a, b, options)` | Whether two texts match caselessly |
+| `case.simpleLower`, `simpleUpper`, `simpleTitle`, `simpleFold` | The simple, one-to-one mappings of a code point |
 | `width.string(text, options)` | A string's terminal columns |
 | `width.cluster(bytes, options)` | One cluster's columns, 0 to 2 |
 | `width.codepoint(cp, options)` | One code point's columns, 0 to 2 |
@@ -254,6 +310,7 @@ costs the first, 34 KB.
 | `emoji(cp)` | Emoji, Emoji_Presentation, Emoji_Modifier, Emoji_Modifier_Base, Emoji_Component, Extended_Pictographic, and whether it has emoji variation sequences |
 | `core(cp)` | The binary properties of DerivedCoreProperties.txt: Alphabetic, Lowercase, Uppercase, Cased, Case_Ignorable, the Changes_When properties, ID_Start, ID_Continue, XID_Start, XID_Continue, Default_Ignorable_Code_Point, Grapheme_Base, Grapheme_Extend, Math |
 | `utf8.decode`, `utf8.Iterator` | Code points of any bytes, ill-formed subparts as U+FFFD |
+| `utf8.encode(iterator, writer)` | Writes the code points an iterator gives as UTF-8 |
 
 Each enumerated value is named for the UCD's long name in snake case
 (`GeneralCategory.uppercase_letter`, `WordBreak.a_letter`, `Script.old_italic`),
@@ -262,8 +319,6 @@ property's default, as an unassigned code point does.
 
 ## Scope
 
-- Steps still to come: normalization (NFC, NFD, NFKC, NFKD) and case mapping
-  and folding.
 - No tailoring of words, sentences or lines, no dictionary segmentation for
   Thai, Lao, Khmer, Myanmar, Chinese or Japanese (SA lines break only at
   spaces and punctuation), no hyphenation, and no locale data.
@@ -273,6 +328,10 @@ property's default, as an unassigned code point does.
   starts from a known boundary before it.
 - No Grapheme_Link (deprecated), and no PropList properties beyond what the
   segmentation rules derive from.
+- No collation, no locale data beyond the Lithuanian and Turkic casings, and no
+  NFKC_Casefold or identifier profiles (UAX #31).
+- `equalFold` does not normalize; canonical caseless matching normalizes both
+  texts first.
 
 ## Platforms
 
@@ -295,14 +354,23 @@ them all for wasm32-freestanding.
 
 `bay test` runs the suite, the usage example and the table check. Unicode's
 own conformance files pass in full: all 853 lines of GraphemeBreakTest.txt,
-1,944 of WordBreakTest.txt, 512 of SentenceBreakTest.txt and 19,346 of
-LineBreakTest.txt, through the
+1,944 of WordBreakTest.txt, 512 of SentenceBreakTest.txt, 19,346 of
+LineBreakTest.txt and 20,171 of NormalizationTest.txt (all five columns in all
+four forms, through the iterator, `write`, `isNormalized` and the quick check), through the
 iterators and, for graphemes, a code point at a time through a `Breaker` too.
 With `.after_base` modifiers every line holds
 with a boundary added before a skin tone that follows no modifier base, and with
 `.as_other` controls every line that has no control, CR or LF holds unchanged. Every one of the 5,244 sequences of emoji-test.txt is one
 cluster under both modifier rules, and each of the 3,972 fully-qualified ones
 and components is 2 columns.
+
+Every code point NormalizationTest.txt does not list is its own normal form in
+all four forms. The simple and full case mappings and folding are checked against
+UnicodeData.txt, SpecialCasing.txt and CaseFolding.txt for every code point, every
+conditional mapping of SpecialCasing.txt in its context, and the five
+Changes_When properties of DerivedCoreProperties.txt, which the UCD derives by
+mapping each code point's NFD, are what normalization and the mappings here give,
+for every code point.
 
 Every table is checked against the UCD file it comes from for every code
 point, parsed again in the test apart from the generator, and the code point
@@ -314,13 +382,17 @@ implementation that decides each position from the whole text by the rules in
 order finds; segments cover the
 text and fall on code point boundaries; a string's width is the sum of its
 clusters'; and decoding agrees with std on well-formed UTF-8 and takes the
-maximal subpart, by its definition, of everything else. They run on seeded
+maximal subpart, by its definition, of everything else. Normal forms of generated
+text with runs of up to a hundred marks are what a plain allocating
+implementation gives; folding, lowercasing and uppercasing are idempotent in
+every language tailoring. They run on seeded
 inputs in every `bay test`, and under `bay test --fuzz` they search further.
 Nothing here can allocate: no call takes an allocator.
 
-`bay bench` times segmentation, line breaking and width over 64 KiB texts of ASCII, accented
+`bay bench` times segmentation, line breaking, width, normalization and case
+mapping over 64 KiB texts of ASCII, accented
 Latin, CJK, Devanagari, emoji and a mix, in ReleaseFast. Run from
-`zig-out/bench`, `segment` and `width` print shakedown's JSON lines. `bay test`
+`zig-out/bench`, `segment`, `width` and `transform` print shakedown's JSON lines. `bay test`
 runs each row once with `--smoke`; CI times nothing.
 
 ## Licence
