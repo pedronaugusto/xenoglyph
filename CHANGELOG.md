@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-13
+
 ### Added
 
 - Grapheme clusters (UAX #29) of Unicode 18.0.0, with GB9c's Indic conjuncts
