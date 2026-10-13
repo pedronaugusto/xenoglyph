@@ -4,7 +4,7 @@
 const std = @import("std");
 const classes = @import("classes.zig");
 const data = @import("data.zig");
-const cluster_data = data.cluster;
+const records = @import("records.zig");
 const general_category_data = data.general_category;
 const east_asian_width_data = data.east_asian_width;
 const word_break_data = data.word_break;
@@ -45,12 +45,12 @@ pub fn eastAsianWidth(cp: u21) EastAsianWidth {
 
 /// Grapheme_Cluster_Break (UAX #29).
 pub fn graphemeBreak(cp: u21) GraphemeBreak {
-    return cluster(cp).grapheme_break;
+    return records.cluster(cp).grapheme_break;
 }
 
 /// Indic_Conjunct_Break.
 pub fn indicConjunctBreak(cp: u21) IndicConjunctBreak {
-    return cluster(cp).conjunct;
+    return records.cluster(cp).conjunct;
 }
 
 /// Word_Break (UAX #29).
@@ -105,36 +105,3 @@ const every_script = std.enums.values(Script);
 fn single(s: Script) []const Script {
     return every_script[@backingInt(s)..][0..1];
 }
-
-/// The record segmentation and measuring read: one lookup for every
-/// property of a code point the hot path needs.
-pub inline fn cluster(cp: u21) classes.Cluster {
-    return clusterRecord(clusterIndex(cp));
-}
-
-/// The distinct cluster records; a code point's record index is its
-/// position here.
-pub const cluster_records = cluster_data.records;
-
-/// The index of a code point's record in `cluster_records`.
-pub inline fn clusterIndex(cp: u21) u8 {
-    if (cp > max_code_point) return default_cluster_index;
-    return cluster_data.table.get(cp);
-}
-
-pub inline fn clusterRecord(index: u8) classes.Cluster {
-    return @bitCast(cluster_records[index]);
-}
-
-/// The record of a value past U+10FFFF: an unassigned code point's.
-const default_cluster_index: u8 = for (cluster_records, 0..) |r, i| {
-    if (r == @as(u16, @bitCast(classes.Cluster{}))) break i;
-} else @compileError("no record for an unassigned code point");
-
-/// The record indexes of the ASCII code points.
-pub const ascii_cluster_indexes: [128]u8 = blk: {
-    @setEvalBranchQuota(10_000);
-    var indexes: [128]u8 = undefined;
-    for (&indexes, 0..) |*i, cp| i.* = cluster_data.table.get(cp);
-    break :blk indexes;
-};

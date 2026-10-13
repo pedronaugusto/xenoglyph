@@ -9,6 +9,7 @@ pub const layers: []const gantry.rules.Layer = &.{
     .{ .name = "generated tables", .patterns = &.{ "src/data/**", "src/data.zig" } },
     .{ .name = "properties and decoding", .patterns = &.{
         "src/properties.zig",
+        "src/records.zig",
         "src/utf8.zig",
     } },
     .{ .name = "grapheme clusters", .patterns = &.{"src/grapheme.zig"} },
@@ -52,6 +53,7 @@ pub const required = [_][]const u8{
     "src/classes.zig",
     "src/table.zig",
     "src/properties.zig",
+    "src/records.zig",
     "src/utf8.zig",
     "src/grapheme.zig",
     "src/word.zig",

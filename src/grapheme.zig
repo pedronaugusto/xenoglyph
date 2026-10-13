@@ -9,8 +9,7 @@
 //! does, so ill-formed bytes are U+FFFD (Grapheme_Cluster_Break Other).
 const std = @import("std");
 const classes = @import("classes.zig");
-const properties = @import("properties.zig");
-const utf8 = @import("utf8.zig");
+const records = @import("records.zig");
 
 const Cluster = classes.Cluster;
 
@@ -150,7 +149,7 @@ fn Context(comptime rules: Rules) type {
 /// code point is the index of its record in the cluster table, so a step
 /// is one table read.
 fn Automaton(comptime rules: Rules) type {
-    const records = properties.cluster_records;
+    const all = records.cluster_records;
     const Ctx = Context(rules);
     return struct {
         const max_states = 128;
@@ -159,12 +158,12 @@ fn Automaton(comptime rules: Rules) type {
         const built = blk: {
             @setEvalBranchQuota(1_000_000);
             var contexts: [max_states]Ctx = undefined;
-            var table: [max_states][records.len]u8 = undefined;
+            var table: [max_states][all.len]u8 = undefined;
             contexts[0] = .{};
             var reached: usize = 1;
             var at: usize = 0;
             while (at < reached) : (at += 1) {
-                for (records, 0..) |r, i| {
+                for (all, 0..) |r, i| {
                     var ctx = contexts[at];
                     const boundary = ctx.step(Class.of(@bitCast(r)));
                     const to = for (contexts[0..reached], 0..) |s, k| {
@@ -182,7 +181,7 @@ fn Automaton(comptime rules: Rules) type {
         };
 
         pub const states = built.count;
-        pub const transitions: [states][records.len]u8 = built.table[0..states].*;
+        pub const transitions: [states][all.len]u8 = built.table[0..states].*;
 
         /// The state after an ASCII code point, which is the same whatever
         /// came before it.
@@ -190,7 +189,7 @@ fn Automaton(comptime rules: Rules) type {
             @setEvalBranchQuota(100_000);
             var after: [128]u8 = undefined;
             for (&after, 0..) |*a, byte| {
-                const index = properties.ascii_cluster_indexes[byte];
+                const index = records.ascii_cluster_indexes[byte];
                 a.* = transitions[start][index] & 0x7f;
                 for (transitions) |row| std.debug.assert(row[index] & 0x7f == a.*);
             }
@@ -217,11 +216,11 @@ pub fn Breaker(comptime rules: Rules) type {
 
         /// Whether `cp` starts a cluster. The first code point does.
         pub fn next(b: *Self, cp: u21) bool {
-            return A.step(&b.state, properties.clusterIndex(cp));
+            return A.step(&b.state, records.clusterIndex(cp));
         }
 
         /// `next` for a code point given by its record index
-        /// (`properties.clusterIndex`).
+        /// (`records.clusterIndex`).
         pub inline fn nextIndex(b: *Self, index: u8) bool {
             return A.step(&b.state, index);
         }
@@ -232,15 +231,6 @@ pub fn Breaker(comptime rules: Rules) type {
             b.state = A.after_ascii[byte];
         }
     };
-}
-
-/// The record index of the code point that starts `bytes` (not empty), the
-/// code point, and its length.
-pub inline fn read(bytes: []const u8) struct { index: u8, code_point: u21, len: u3 } {
-    const lead = bytes[0];
-    if (lead < 0x80) return .{ .index = properties.ascii_cluster_indexes[lead], .code_point = lead, .len = 1 };
-    const d = utf8.decode(bytes);
-    return .{ .index = properties.clusterIndex(d.code_point), .code_point = d.code_point, .len = d.len };
 }
 
 /// The grapheme clusters of a string, in order.
@@ -287,13 +277,13 @@ pub fn Iterator(comptime rules: Rules) type {
             if (it.pending != 0) {
                 at += it.pending;
             } else {
-                const first = read(bytes[at..]);
+                const first = records.read(bytes[at..]);
                 _ = it.breaker.nextIndex(first.index);
                 at += first.len;
             }
             it.pending = 0;
             while (at < bytes.len) {
-                const n = read(bytes[at..]);
+                const n = records.read(bytes[at..]);
                 if (it.breaker.nextIndex(n.index)) {
                     it.pending = n.len;
                     break;

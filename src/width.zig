@@ -45,8 +45,8 @@
 //! `.method = .codepoint`: the sum of the code points' columns.
 const std = @import("std");
 const classes = @import("classes.zig");
-const properties = @import("properties.zig");
 const grapheme = @import("grapheme.zig");
+const records = @import("records.zig");
 
 const Cluster = classes.Cluster;
 
@@ -69,7 +69,7 @@ inline fn columnsOf(record: Cluster, comptime options: Options) u2 {
 
 /// The columns of one code point standing alone, by the rules above.
 pub fn codepoint(cp: u21, comptime options: Options) u2 {
-    return columnsOf(properties.cluster(cp), options);
+    return columnsOf(records.cluster(cp), options);
 }
 
 /// One cluster's width as it grows: give it each of the cluster's code
@@ -79,12 +79,12 @@ const Measure = struct {
     previous: Cluster,
 
     inline fn start(index: u8, comptime options: Options) Measure {
-        const record = properties.clusterRecord(index);
+        const record = records.clusterRecord(index);
         return .{ .columns = columnsOf(record, options), .previous = record };
     }
 
     inline fn add(m: *Measure, cp: u21, index: u8, comptime options: Options) void {
-        const record = properties.clusterRecord(index);
+        const record = records.clusterRecord(index);
         if (cp == 0xfe0f or cp == 0xfe0e) {
             if (!m.previous.variation_base) return;
             m.columns = if (cp == 0xfe0f) 2 else 1;
@@ -99,11 +99,11 @@ const Measure = struct {
 /// boundaries: 0, 1 or 2. Empty is 0.
 pub fn cluster(bytes: []const u8, comptime options: Options) u2 {
     if (bytes.len == 0) return 0;
-    const first = grapheme.read(bytes);
+    const first = records.read(bytes);
     var m: Measure = .start(first.index, options);
     var at: usize = first.len;
     while (at < bytes.len) {
-        const n = grapheme.read(bytes[at..]);
+        const n = records.read(bytes[at..]);
         m.add(n.code_point, n.index, options);
         at += n.len;
     }
@@ -128,19 +128,19 @@ pub fn string(bytes: []const u8, comptime options: Options) usize {
     switch (options.method) {
         .codepoint => {
             while (at < bytes.len) {
-                const n = grapheme.read(bytes[at..]);
-                total += columnsOf(properties.clusterRecord(n.index), options);
+                const n = records.read(bytes[at..]);
+                total += columnsOf(records.clusterRecord(n.index), options);
                 at += n.len;
             }
         },
         .cluster => {
             var breaker: grapheme.Breaker(options.rules) = .{};
-            const first = grapheme.read(bytes[at..]);
+            const first = records.read(bytes[at..]);
             _ = breaker.nextIndex(first.index);
             var m: Measure = .start(first.index, options);
             at += first.len;
             while (at < bytes.len) {
-                const n = grapheme.read(bytes[at..]);
+                const n = records.read(bytes[at..]);
                 if (breaker.nextIndex(n.index)) {
                     total += m.columns;
                     m = .start(n.index, options);
