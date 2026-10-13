@@ -1,13 +1,13 @@
 # xenoglyph
 
 xenoglyph handles Unicode text in Zig: grapheme clusters, words and sentences
-(UAX #29), how many terminal cells text takes, and the character properties
-those rest on, from the Unicode Character Database 18.0.0. Nothing in it
+(UAX #29), line break opportunities (UAX #14), how many terminal cells text
+takes, and the character properties those rest on, from the Unicode Character Database 18.0.0. Nothing in it
 allocates, nothing holds global state, and every call builds for a target with
 no operating system.
 
-Work in progress. Line breaking (UAX #14), normalization (UAX #15) and case
-mapping are not here yet; see [Scope](#scope).
+Work in progress. Normalization (UAX #15) and case mapping are not here yet;
+see [Scope](#scope).
 
 ## Install
 
@@ -83,6 +83,25 @@ std.debug.assert(xenoglyph.scriptExtensions(0x0964).len > 1);
 ```
 <!-- END GENERATED -->
 
+Line break opportunities, for wrapping:
+
+<!-- BEGIN GENERATED zig build docs -- lines -->
+```zig
+const xenoglyph = @import("xenoglyph");
+
+// Where a line may break, and where it must.
+const text = "A (quick) test\u{2014}costs $12.50.\nNext";
+var it = xenoglyph.lines(text);
+// A bracket stays with its word, a dash breaks on either side, a price
+// holds together, and the line feed ends a line whatever the width.
+for ([_][]const u8{ "A ", "(quick) ", "test", "\u{2014}", "costs ", "$12.50.\n" }) |want| {
+    const b = it.nextBreak().?;
+    std.debug.assert(std.mem.eql(u8, text[b.span.start..b.span.end], want));
+    std.debug.assert(b.mandatory == (want[want.len - 1] == '\n'));
+}
+```
+<!-- END GENERATED -->
+
 A `Breaker` takes code points one at a time, for text that arrives in pieces:
 
 <!-- BEGIN GENERATED zig build docs -- stream -->
@@ -141,6 +160,21 @@ Text is any bytes. Each maximal subpart of an ill-formed UTF-8 sequence reads as
 one U+FFFD and takes only its own bytes, as the Unicode Standard recommends
 (chapter 3.9), so a stray byte never swallows the character after it.
 
+### Line breaking
+
+Line break opportunities follow UAX #14's default rules LB1 to LB31 for Unicode
+18.0.0, with no tailoring, and with LB1's default resolution of the classes it
+leaves open: AI, SG and XX are AL, SA is CM for a mark and AL otherwise, CJ is
+NS. A segment ends where a line may break; `Break.mandatory` is set where it
+ends with a hard line break (BK, CR, LF, NL). What the rules read behind a
+position is carried forward as a few values (the last two items after LB9 joins
+marks to their base, the last that is not a space and the one before it, a
+number in progress, the parity of a run of regional indicators), and what they
+read ahead, at most two items, is read only when a rule asks, so a pass is
+linear. The iterator carries that context from one segment to the next, since
+LB15a, LB19a, LB20a and LB21a read the item before a break. Fitting segments to
+a width is the caller's: `width.string` measures each.
+
 ### Width
 
 Unicode defines no cell width; terminals do. `width` states its model as rules.
@@ -192,6 +226,7 @@ The UCD files are in the repository and outside what the package ships.
 | Script | 20,704 |
 | Script_Extensions | 4,016 |
 | Derived core properties | 20,404 |
+| Line breaking records (resolved class and the flags the rules read) | 36,348 |
 | Line_Break | 19,136 |
 | Sentence_Break | 16,736 |
 | Word_Break | 13,520 |
@@ -210,6 +245,7 @@ costs the first, 34 KB.
 | `grapheme.count(text, rules)` | How many clusters a string holds |
 | `words(text)`, `word.isWordLike(segment)` | Words and the runs between them; whether a segment is a word |
 | `sentences(text)` | Sentences |
+| `lines(text)`, `line.Iterator.nextBreak()` | Line break opportunities, each with whether the break is mandatory |
 | `width.string(text, options)` | A string's terminal columns |
 | `width.cluster(bytes, options)` | One cluster's columns, 0 to 2 |
 | `width.codepoint(cp, options)` | One code point's columns, 0 to 2 |
@@ -226,10 +262,11 @@ property's default, as an unassigned code point does.
 
 ## Scope
 
-- Steps still to come: line breaking (UAX #14, of which `lineBreak` is the
-  class), normalization (NFC, NFD, NFKC, NFKD) and case mapping and folding.
-- No tailoring of words or sentences, no dictionary segmentation for Thai,
-  Lao, Khmer, Myanmar, Chinese or Japanese, and no locale data.
+- Steps still to come: normalization (NFC, NFD, NFKC, NFKD) and case mapping
+  and folding.
+- No tailoring of words, sentences or lines, no dictionary segmentation for
+  Thai, Lao, Khmer, Myanmar, Chinese or Japanese (SA lines break only at
+  spaces and punctuation), no hyphenation, and no locale data.
 - No bidirectional text, shaping or rendering: widths are the cells a
   monospace terminal gives text, not glyph metrics.
 - Iteration is forward only; a caller that needs a boundary before a position
@@ -258,7 +295,8 @@ them all for wasm32-freestanding.
 
 `bay test` runs the suite, the usage example and the table check. Unicode's
 own conformance files pass in full: all 853 lines of GraphemeBreakTest.txt,
-1,944 of WordBreakTest.txt and 512 of SentenceBreakTest.txt, through the
+1,944 of WordBreakTest.txt, 512 of SentenceBreakTest.txt and 19,346 of
+LineBreakTest.txt, through the
 iterators and, for graphemes, a code point at a time through a `Breaker` too.
 With `.after_base` modifiers every line holds
 with a boundary added before a skin tone that follows no modifier base, and with
@@ -271,15 +309,16 @@ point, parsed again in the test apart from the generator, and the code point
 widths are derived from the raw properties by the rules above and compared for
 every code point. Properties through shakedown run on generated text that mixes
 the code points the rules treat specially with arbitrary bytes: graphemes,
-words and sentences must be what a second implementation that decides each
-position from the whole text by the rules in order finds; segments cover the
+words, sentences and lines (mandatory breaks included) must be what a second
+implementation that decides each position from the whole text by the rules in
+order finds; segments cover the
 text and fall on code point boundaries; a string's width is the sum of its
 clusters'; and decoding agrees with std on well-formed UTF-8 and takes the
 maximal subpart, by its definition, of everything else. They run on seeded
 inputs in every `bay test`, and under `bay test --fuzz` they search further.
 Nothing here can allocate: no call takes an allocator.
 
-`bay bench` times segmentation and width over 64 KiB texts of ASCII, accented
+`bay bench` times segmentation, line breaking and width over 64 KiB texts of ASCII, accented
 Latin, CJK, Devanagari, emoji and a mix, in ReleaseFast. Run from
 `zig-out/bench`, `segment` and `width` print shakedown's JSON lines. `bay test`
 runs each row once with `--smoke`; CI times nothing.

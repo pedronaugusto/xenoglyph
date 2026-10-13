@@ -284,3 +284,23 @@ pub const Cluster = packed struct(u16) {
     ambiguous: bool = false,
     _: u3 = 0,
 };
+
+/// What the line breaking rules (UAX #14) need of one code point, in one
+/// lookup. Internal to xenoglyph; `lineBreak` gives the property itself.
+pub const Line = packed struct(u16) {
+    /// Line_Break as rule LB1 resolves it by default: AI, SG and XX to AL,
+    /// SA to CM for a mark (Mn, Mc) and AL otherwise, CJ to NS.
+    class: LineBreak = .alphabetic,
+    /// General_Category Initial_Punctuation (Pi), which LB15a and LB19 read.
+    initial: bool = false,
+    /// General_Category Final_Punctuation (Pf), which LB15b and LB19 read.
+    final: bool = false,
+    /// East_Asian_Width Fullwidth, Wide or Halfwidth: LB19a's and LB30's
+    /// East Asian.
+    east_asian: bool = false,
+    /// Extended_Pictographic and unassigned, which LB30b reads.
+    pictographic_unassigned: bool = false,
+    /// U+25CC DOTTED CIRCLE, which LB28a reads as a base.
+    dotted_circle: bool = false,
+    _: u5 = 0,
+};

@@ -4,6 +4,7 @@ test {
     _ = @import("word.zig");
     _ = @import("sentence.zig");
     _ = @import("width.zig");
+    _ = @import("line.zig");
     _ = @import("testing/conformance_test.zig");
     _ = @import("testing/properties_test.zig");
     _ = @import("testing/fuzz_test.zig");

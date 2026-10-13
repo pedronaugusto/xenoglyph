@@ -8,6 +8,7 @@ pub const grapheme = @import("grapheme.zig");
 pub const word = @import("word.zig");
 pub const sentence = @import("sentence.zig");
 pub const width = @import("width.zig");
+pub const line = @import("line.zig");
 pub const properties = @import("properties.zig");
 
 pub const unicode_version = properties.unicode_version;
@@ -41,6 +42,8 @@ pub const graphemes = grapheme.iterate;
 pub const words = word.iterate;
 /// The sentences of a string (UAX #29).
 pub const sentences = sentence.iterate;
+/// The line break opportunities of a string (UAX #14).
+pub const lines = line.iterate;
 
 test {
     std.testing.refAllDecls(@This());

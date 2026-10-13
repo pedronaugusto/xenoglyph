@@ -7,9 +7,10 @@ const grapheme = @import("../grapheme.zig");
 const word = @import("../word.zig");
 const sentence = @import("../sentence.zig");
 const width = @import("../width.zig");
+const breaking = @import("../line.zig");
 const properties = @import("../properties.zig");
 
-const max_code_points = 64;
+const max_code_points = 256;
 
 /// One line of a break test: its code points, the text they encode, and
 /// where each code point starts and whether a boundary stands before it.
@@ -185,4 +186,14 @@ test "emoji-test.txt: every sequence is one cluster, and a qualified one two col
     }
     try std.testing.expectEqual(5244, sequences);
     try std.testing.expectEqual(3972, wide);
+}
+
+fn lineCase(c: *const Case, number: usize) !void {
+    var it: breaking.Iterator = .init(c.bytes());
+    try expectSegments(c, &it, number);
+}
+
+test "LineBreakTest.txt, every line" {
+    const cases = try eachLine(ucd.line_break_test, lineCase);
+    try std.testing.expectEqual(19346, cases);
 }

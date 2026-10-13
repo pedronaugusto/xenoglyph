@@ -21,7 +21,9 @@ const interesting = [_]u21{
     0x903,   0x915,   0x937,   0x93f,   0x94d,   0x9cd,   0x995,   0xe33,   0x1100,  0x1161,  0x11a8,  0xac00,   0xac01,
     0x1cf5,  0x200b,  0x200c,  0x200d,  0x2018,  0x2019,  0x2028,  0x202f,  0x2060,  0x20e3,  0x2601,  0x263a,   0x2764,
     0x3002,  0x30a2,  0x3099,  0x4e00,  0xfe0e,  0xfe0f,  0xfeff,  0xff0e,  0xfffd,  0x1f1e6, 0x1f1e8, 0x1f1ed,  0x1f3fb,
-    0x1f3ff, 0x1f44d, 0x1f468, 0x1f469, 0x1f590, 0x1f600, 0x1f680, 0xe0067, 0xe007f, 0x11a3a, 0x16d63, 0x10ffff,
+    0x1f3ff, 0x1f44d, 0x1f468, 0x1f469, 0x1f590, 0x1f600, 0x1f680, 0xe0067, 0xe007f, 0x11a3a, 0x16d63, 0x10ffff, '-',
+    '$',     '%',     '/',     '!',     '[',     0xab,    0xbb,    0x2010,  0x2014,  0x2026,  0x201c,  0x201d,   0x3000,
+    0x3001,  0x300c,  0x300d,  0xfffc,  0x1b05,  0x1b44,  0x1b3a,  0x25cc,  0xa9c0,  0x11f04, 0x1f3fb, 0x1fffd,
 };
 
 fn piece(s: *shakedown.Source, out: *std.ArrayList(u8), gpa: std.mem.Allocator) !void {
@@ -129,6 +131,18 @@ fn againstOracle(_: void, case: *shakedown.Case) anyerror!void {
     var sentences = try expectCover(bytes, &s);
     defer sentences.deinit(std.testing.allocator);
     try std.testing.expectEqualSlices(usize, try oracle.sentences(case.gpa, decoded), sentences.items);
+    var want_lines = try oracle.lines(case.gpa, decoded);
+    var l = xenoglyph.lines(bytes);
+    var start: usize = 0;
+    for (want_lines) |want| {
+        const got = l.nextBreak() orelse return error.TestUnexpectedResult;
+        try std.testing.expectEqual(start, got.span.start);
+        try std.testing.expectEqual(want.end, got.span.end);
+        try std.testing.expectEqual(want.mandatory, got.mandatory);
+        start = got.span.end;
+    }
+    try std.testing.expectEqual(null, l.nextBreak());
+    want_lines = undefined;
 }
 
 // Word and sentence boundaries are not always cluster boundaries: the
@@ -138,7 +152,7 @@ fn againstOracle(_: void, case: *shakedown.Case) anyerror!void {
 // U+094D U+0915), and a sentence boundary before a skin tone after a full
 // stop (". U+1F3FB"). xenoglyph keeps to the rules, so the oracle, not
 // the clusters, is what the segments are held to.
-test "graphemes, words and sentences of any text are the rules read literally" {
+test "graphemes, words, sentences and lines of any text are the rules read literally" {
     try shakedown.check(std.testing.allocator, {}, againstOracle, .{ .cases = 3000 });
 }
 

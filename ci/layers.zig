@@ -17,6 +17,7 @@ pub const layers: []const gantry.rules.Layer = &.{
         "src/word.zig",
         "src/sentence.zig",
         "src/width.zig",
+        "src/line.zig",
     } },
     .{ .name = "public", .patterns = &.{"src/xenoglyph.zig"} },
 };
@@ -34,6 +35,7 @@ pub const reexports = [_]struct { from: []const u8, to: []const u8 }{
     .{ .from = "src/data.zig", .to = "src/data/emoji.zig" },
     .{ .from = "src/data.zig", .to = "src/data/core.zig" },
     .{ .from = "src/data.zig", .to = "src/data/script.zig" },
+    .{ .from = "src/data.zig", .to = "src/data/wrapping.zig" },
 };
 
 pub const modules: []const gantry.NamedModule = &.{};
@@ -59,6 +61,7 @@ pub const required = [_][]const u8{
     "src/word.zig",
     "src/sentence.zig",
     "src/width.zig",
+    "src/line.zig",
     "src/xenoglyph.zig",
     "src/tests.zig",
 };

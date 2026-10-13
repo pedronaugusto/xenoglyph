@@ -104,6 +104,7 @@ fn generate(gpa: Allocator, ucd: Ucd) ![]const File {
     try files.append(gpa, .{ .name = "emoji.zig", .bytes = try emojiFile(gpa, p) });
     try files.append(gpa, .{ .name = "core.zig", .bytes = try coreFile(gpa, p) });
     try files.append(gpa, .{ .name = "script.zig", .bytes = try scriptFile(gpa, p, aliases) });
+    try files.append(gpa, .{ .name = "wrapping.zig", .bytes = try lineFile(gpa, p) });
     for (files.items) |*file| file.bytes = try formatted(gpa, file.name, file.bytes);
     return files.toOwnedSlice(gpa);
 }
@@ -604,6 +605,31 @@ fn clusterFile(gpa: Allocator, p: Properties) ![]const u8 {
     const values = try gpa.alloc(classes.Cluster, code_points);
     for (values, 0..) |*v, cp| v.* = clusterOf(p, cp);
     return recordFile(gpa, classes.Cluster, .two, "What segmenting and measuring a grapheme cluster need of a code point, as `classes.Cluster` records", "auxiliary/GraphemeBreakProperty.txt, DerivedCoreProperties.txt, emoji/emoji-data.txt, emoji/emoji-variation-sequences.txt, EastAsianWidth.txt, extracted/DerivedGeneralCategory.txt", values);
+}
+
+fn lineOf(p: Properties, cp: usize) classes.Line {
+    const gc = p.general_category[cp];
+    const class: classes.LineBreak = switch (p.line_break[cp]) {
+        .ambiguous, .surrogate, .unknown => .alphabetic,
+        .complex_context => if (gc == .nonspacing_mark or gc == .spacing_mark) .combining_mark else .alphabetic,
+        .conditional_japanese_starter => .nonstarter,
+        else => |c| c,
+    };
+    const ea = p.east_asian_width[cp];
+    return .{
+        .class = class,
+        .initial = gc == .initial_punctuation,
+        .final = gc == .final_punctuation,
+        .east_asian = ea == .fullwidth or ea == .wide or ea == .halfwidth,
+        .pictographic_unassigned = p.emoji[cp].extended_pictographic and gc == .unassigned,
+        .dotted_circle = cp == 0x25cc,
+    };
+}
+
+fn lineFile(gpa: Allocator, p: Properties) ![]const u8 {
+    const values = try gpa.alloc(classes.Line, code_points);
+    for (values, 0..) |*v, cp| v.* = lineOf(p, cp);
+    return recordFile(gpa, classes.Line, .two, "What the line breaking rules need of a code point, as `classes.Line` records", "LineBreak.txt, extracted/DerivedGeneralCategory.txt, EastAsianWidth.txt, emoji/emoji-data.txt", values);
 }
 
 fn coreFile(gpa: Allocator, p: Properties) ![]const u8 {

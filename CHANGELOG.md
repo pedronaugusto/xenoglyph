@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Line break opportunities (UAX #14) of Unicode 18.0.0: `lines`, `line.Iterator`,
+  whose `nextBreak` says where a break is mandatory.
+
 ## [0.1.0] - 2026-10-13
 
 ### Added

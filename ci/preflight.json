@@ -41,6 +41,13 @@
       "imports": [
         "xenoglyph"
       ]
+    },
+    "zig build docs -- lines": {
+      "source": "examples/usage.zig",
+      "region": "lines",
+      "imports": [
+        "xenoglyph"
+      ]
     }
   },
   "extra_checks": [

@@ -1,4 +1,4 @@
-//! Segmentation throughput: `bay bench`, or `zig-out/bench/segment [--smoke]
+//! Segmentation and line breaking throughput: `bay bench`, or `zig-out/bench/segment [--smoke]
 //! [--row PREFIX]` by hand. A unit is one pass over a 64 KiB text, so
 //! MB/s is 65.5 / (ms a unit). CI compiles this and times nothing.
 const std = @import("std");
@@ -41,6 +41,18 @@ const Context = struct {
         }.run;
     }
 
+    fn lines(comptime kind: corpus.Kind) fn (*Context, u64) WorkloadError!void {
+        return struct {
+            fn run(c: *Context, units: u64) WorkloadError!void {
+                for (0..units) |_| {
+                    var it = xenoglyph.lines(c.text(kind));
+                    while (it.nextBreak()) |b| c.count += 1 + @as(usize, @intFromBool(b.mandatory));
+                    std.mem.doNotOptimizeAway(c.count);
+                }
+            }
+        }.run;
+    }
+
     fn sentences(comptime kind: corpus.Kind) fn (*Context, u64) WorkloadError!void {
         return struct {
             fn run(c: *Context, units: u64) WorkloadError!void {
@@ -67,6 +79,9 @@ const rows = [_]Row{
     .{ .name = "words mixed", .unit = "64KiB", .run = Context.words(.mixed) },
     .{ .name = "sentences ascii", .unit = "64KiB", .run = Context.sentences(.ascii) },
     .{ .name = "sentences mixed", .unit = "64KiB", .run = Context.sentences(.mixed) },
+    .{ .name = "lines ascii", .unit = "64KiB", .run = Context.lines(.ascii) },
+    .{ .name = "lines cjk", .unit = "64KiB", .run = Context.lines(.cjk) },
+    .{ .name = "lines mixed", .unit = "64KiB", .run = Context.lines(.mixed) },
 };
 
 pub fn main(init: std.process.Init) !void {

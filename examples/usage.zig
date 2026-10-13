@@ -19,6 +19,7 @@ pub fn main() !void {
     words();
     properties();
     stream();
+    lines();
 }
 
 fn words() void {
@@ -52,6 +53,21 @@ fn properties() void {
     // Code points shared by scripts list them all.
     std.debug.assert(xenoglyph.scriptExtensions(0x0964).len > 1);
     // --- README:properties ---
+}
+
+fn lines() void {
+    // --- README:lines ---
+    // Where a line may break, and where it must.
+    const text = "A (quick) test\u{2014}costs $12.50.\nNext";
+    var it = xenoglyph.lines(text);
+    // A bracket stays with its word, a dash breaks on either side, a price
+    // holds together, and the line feed ends a line whatever the width.
+    for ([_][]const u8{ "A ", "(quick) ", "test", "\u{2014}", "costs ", "$12.50.\n" }) |want| {
+        const b = it.nextBreak().?;
+        std.debug.assert(std.mem.eql(u8, text[b.span.start..b.span.end], want));
+        std.debug.assert(b.mandatory == (want[want.len - 1] == '\n'));
+    }
+    // --- README:lines ---
 }
 
 fn stream() void {

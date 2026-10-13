@@ -50,3 +50,9 @@ pub inline fn read(bytes: []const u8) struct { index: u8, code_point: u21, len: 
     const d = utf8.decode(bytes);
     return .{ .index = clusterIndex(d.code_point), .code_point = d.code_point, .len = d.len };
 }
+
+/// What the line breaking rules read of a code point, in one lookup.
+pub inline fn line(cp: u21) classes.Line {
+    if (cp > max_code_point) return .{};
+    return @bitCast(data.wrapping.records[data.wrapping.table.get(cp)]);
+}

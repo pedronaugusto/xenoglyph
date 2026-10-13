@@ -5,6 +5,8 @@
 //! start of the text, and no lookahead is cached. Quadratic, for tests.
 const std = @import("std");
 const xenoglyph = @import("../xenoglyph.zig");
+const classes = @import("../classes.zig");
+const records = @import("../records.zig");
 
 const WordBreak = xenoglyph.WordBreak;
 const SentenceBreak = xenoglyph.SentenceBreak;
@@ -259,4 +261,155 @@ fn sentenceBoundary(cps: []const u21, i: usize) bool {
     }
     if (runEndingAt(cps, l1, true) != null) return true; // SB11
     return false; // SB998
+}
+
+/// Line break opportunities (UAX #14) read literally: the text is first cut
+/// into LB9's items, and each position is then decided from the items
+/// around it, looked up afresh. Each entry is the end of a segment and
+/// whether the break there is mandatory.
+pub const LineBreak = struct { end: usize, mandatory: bool };
+
+const LineItem = struct { line: classes.Line, first: usize, last: usize };
+
+pub fn lines(gpa: std.mem.Allocator, d: Decoded) ![]LineBreak {
+    var out: std.ArrayList(LineBreak) = .empty;
+    const cps = d.code_points;
+    if (cps.len == 0) return &.{};
+    const written = try gpa.alloc(classes.Line, cps.len);
+    for (written, cps) |*r, cp| r.* = records.line(cp);
+    // LB9 and LB10: the items, and the item each code point belongs to.
+    var items: std.ArrayList(LineItem) = .empty;
+    const item_of = try gpa.alloc(usize, cps.len);
+    for (written, 0..) |r, i| {
+        const attaches = (r.class == .combining_mark or r.class == .zwj) and items.items.len > 0 and switch (items.items[items.items.len - 1].line.class) {
+            .mandatory_break, .carriage_return, .line_feed, .next_line, .space, .zw_space => false,
+            else => true,
+        };
+        if (attaches) {
+            items.items[items.items.len - 1].last = i;
+        } else {
+            const line = if (r.class == .combining_mark or r.class == .zwj) classes.Line{ .class = .alphabetic } else r;
+            try items.append(gpa, .{ .line = line, .first = i, .last = i });
+        }
+        item_of[i] = items.items.len - 1;
+    }
+    for (1..cps.len) |i| {
+        const decision = lineDecision(written, items.items, item_of, i);
+        if (decision != .prohibited) try out.append(gpa, .{ .end = d.offsets[i], .mandatory = decision == .mandatory });
+    }
+    const last = written[cps.len - 1].class;
+    try out.append(gpa, .{ .end = d.offsets[cps.len], .mandatory = last == .mandatory_break or last == .carriage_return or last == .line_feed or last == .next_line });
+    return out.toOwnedSlice(gpa);
+}
+
+const Decision = enum { mandatory, allowed, prohibited };
+
+fn lineDecision(written: []const classes.Line, items: []const LineItem, item_of: []const usize, i: usize) Decision {
+    const L = xenoglyph.LineBreak;
+    const p = written[i - 1].class;
+    const c = written[i].class;
+    if (p == .mandatory_break) return .mandatory; // LB4
+    if (p == .carriage_return and c == .line_feed) return .prohibited; // LB5
+    if (p == .carriage_return or p == .line_feed or p == .next_line) return .mandatory;
+    if (c == .mandatory_break or c == .carriage_return or c == .line_feed or c == .next_line) return .prohibited; // LB6
+    if (c == .space or c == .zw_space) return .prohibited; // LB7
+    { // LB8: ZW SP* ÷
+        var k = i;
+        while (k > 0 and written[k - 1].class == .space) k -= 1;
+        if (k > 0 and written[k - 1].class == .zw_space) return .allowed;
+    }
+    if (p == .zwj) return .prohibited; // LB8a
+    if (item_of[i] == item_of[i - 1]) return .prohibited; // LB9
+    const at = item_of[i];
+    const r = items[at].line;
+    const left = items[at - 1].line;
+    const prior: ?classes.Line = if (at >= 2) items[at - 2].line else null;
+    const next: ?classes.Line = if (at + 1 < items.len) items[at + 1].line else null;
+    const second: ?classes.Line = if (at + 2 < items.len) items[at + 2].line else null;
+    // Through spaces: the last item before `at` that is not one, and the one before it.
+    var s = at;
+    while (s > 0 and items[s - 1].line.class == .space) s -= 1;
+    const solid: ?classes.Line = if (s > 0) items[s - 1].line else null;
+    const before_solid: ?classes.Line = if (s > 1) items[s - 2].line else null;
+    const l = left.class;
+    const rc = r.class;
+    const is = struct {
+        fn of(x: ?classes.Line, set: []const L) bool {
+            const v = x orelse return false;
+            return std.mem.findScalar(L, set, v.class) != null;
+        }
+        fn one(x: L, set: []const L) bool {
+            return std.mem.findScalar(L, set, x) != null;
+        }
+    };
+    const letters = [_]L{ .alphabetic, .hebrew_letter };
+    if (rc == .word_joiner or l == .word_joiner) return .prohibited; // LB11
+    if (l == .glue) return .prohibited; // LB12
+    if (rc == .glue and !is.one(l, &.{ .space, .hyphen, .unambiguous_hyphen })) return .prohibited; // LB12a
+    if (is.one(rc, &.{ .close_punctuation, .close_parenthesis, .exclamation, .break_symbols })) return .prohibited; // LB13
+    if (is.of(solid, &.{.open_punctuation})) return .prohibited; // LB14
+    if (solid != null and solid.?.class == .quotation and solid.?.initial and (s < 2 or is.of(before_solid, &.{ .mandatory_break, .carriage_return, .line_feed, .next_line, .open_punctuation, .quotation, .glue, .space, .zw_space }))) return .prohibited; // LB15a
+    if (rc == .quotation and r.final and (next == null or is.of(next, &.{ .space, .glue, .word_joiner, .close_punctuation, .quotation, .close_parenthesis, .exclamation, .infix_numeric, .break_symbols, .mandatory_break, .carriage_return, .line_feed, .next_line, .zw_space }))) return .prohibited; // LB15b
+    if (l == .space and rc == .infix_numeric and is.of(next, &.{.numeric})) return .allowed; // LB15c
+    if (rc == .infix_numeric) return .prohibited; // LB15d
+    if (is.of(solid, &.{ .close_punctuation, .close_parenthesis }) and rc == .nonstarter) return .prohibited; // LB16
+    if (is.of(solid, &.{.break_both}) and rc == .break_both) return .prohibited; // LB17
+    if (l == .space) return .allowed; // LB18
+    if (rc == .quotation and !r.initial) return .prohibited; // LB19
+    if (l == .quotation and !left.final) return .prohibited;
+    if (rc == .quotation and (!left.east_asian or next == null or !next.?.east_asian)) return .prohibited; // LB19a
+    if (l == .quotation and (!r.east_asian or prior == null or !prior.?.east_asian)) return .prohibited;
+    if (rc == .contingent_break or l == .contingent_break) return .allowed; // LB20
+    if (is.one(l, &.{ .hyphen, .unambiguous_hyphen }) and is.one(rc, &letters) and (prior == null or is.of(prior, &.{ .mandatory_break, .carriage_return, .line_feed, .next_line, .space, .zw_space, .contingent_break, .glue }))) return .prohibited; // LB20a
+    if (is.one(rc, &.{ .break_after, .unambiguous_hyphen, .hyphen, .nonstarter }) or l == .break_before) return .prohibited; // LB21
+    if (is.of(prior, &.{.hebrew_letter}) and is.one(l, &.{ .hyphen, .unambiguous_hyphen }) and rc != .hebrew_letter) return .prohibited; // LB21a
+    if (l == .break_symbols and rc == .hebrew_letter) return .prohibited; // LB21b
+    if (rc == .inseparable) return .prohibited; // LB22
+    if ((is.one(l, &letters) and rc == .numeric) or (l == .numeric and is.one(rc, &letters))) return .prohibited; // LB23
+    if ((l == .prefix_numeric and is.one(rc, &.{ .ideographic, .e_base, .e_modifier })) or (is.one(l, &.{ .ideographic, .e_base, .e_modifier }) and rc == .postfix_numeric)) return .prohibited; // LB23a
+    if ((is.one(l, &.{ .prefix_numeric, .postfix_numeric }) and is.one(rc, &letters)) or (is.one(l, &letters) and is.one(rc, &.{ .prefix_numeric, .postfix_numeric }))) return .prohibited; // LB24
+    { // LB25: NU (SY | IS)* (CL | CP)? × (PO | PR), NU (SY | IS)* × NU
+        var k = at;
+        var closed = false;
+        if (k > 0 and is.one(items[k - 1].line.class, &.{ .close_punctuation, .close_parenthesis })) {
+            k -= 1;
+            closed = true;
+        }
+        while (k > 0 and is.one(items[k - 1].line.class, &.{ .break_symbols, .infix_numeric })) k -= 1;
+        if (k > 0 and items[k - 1].line.class == .numeric) {
+            if (is.one(rc, &.{ .postfix_numeric, .prefix_numeric })) return .prohibited;
+            if (!closed and rc == .numeric) return .prohibited;
+        }
+    }
+    if (is.one(l, &.{ .postfix_numeric, .prefix_numeric }) and rc == .open_punctuation and (is.of(next, &.{.numeric}) or (is.of(next, &.{.infix_numeric}) and is.of(second, &.{.numeric})))) return .prohibited;
+    if (is.one(l, &.{ .postfix_numeric, .prefix_numeric, .hyphen, .infix_numeric }) and rc == .numeric) return .prohibited;
+    if (l == .jl and is.one(rc, &.{ .jl, .jv, .h2, .h3 })) return .prohibited; // LB26
+    if (is.one(l, &.{ .jv, .h2 }) and is.one(rc, &.{ .jv, .jt })) return .prohibited;
+    if (is.one(l, &.{ .jt, .h3 }) and rc == .jt) return .prohibited;
+    if (is.one(l, &.{ .jl, .jv, .jt, .h2, .h3 }) and rc == .postfix_numeric) return .prohibited; // LB27
+    if (l == .prefix_numeric and is.one(rc, &.{ .jl, .jv, .jt, .h2, .h3 })) return .prohibited;
+    if (is.one(l, &letters) and is.one(rc, &letters)) return .prohibited; // LB28
+    const ak = struct {
+        fn sa(x: classes.Line) bool {
+            return x.class == .aksara or x.class == .aksara_start or x.dotted_circle;
+        }
+        fn k(x: classes.Line) bool {
+            return x.class == .aksara or x.dotted_circle;
+        }
+    };
+    if (l == .aksara_prebase and ak.sa(r)) return .prohibited; // LB28a
+    if (ak.sa(left) and is.one(rc, &.{ .virama_final, .virama })) return .prohibited;
+    if (prior != null and ak.sa(prior.?) and l == .virama and ak.k(r)) return .prohibited;
+    if (ak.sa(left) and ak.sa(r) and is.of(next, &.{.virama_final})) return .prohibited;
+    if (l == .infix_numeric and is.one(rc, &letters)) return .prohibited; // LB29
+    if (is.one(l, &.{ .alphabetic, .hebrew_letter, .numeric }) and rc == .open_punctuation and !r.east_asian) return .prohibited; // LB30
+    if (l == .close_parenthesis and !left.east_asian and is.one(rc, &.{ .alphabetic, .hebrew_letter, .numeric })) return .prohibited;
+    if (l == .regional_indicator and rc == .regional_indicator) { // LB30a
+        var run: usize = 0;
+        var k = at;
+        while (k > 0 and items[k - 1].line.class == .regional_indicator) : (k -= 1) run += 1;
+        if (run % 2 == 1) return .prohibited;
+    }
+    if (rc == .e_modifier and (l == .e_base or left.pictographic_unassigned)) return .prohibited; // LB30b
+    return .allowed; // LB31
 }

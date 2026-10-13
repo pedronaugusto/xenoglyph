@@ -19,3 +19,4 @@ pub const emoji_variation_sequences = @embedFile("emoji/emoji-variation-sequence
 pub const scripts = @embedFile("Scripts.txt");
 pub const script_extensions = @embedFile("ScriptExtensions.txt");
 pub const property_value_aliases = @embedFile("PropertyValueAliases.txt");
+pub const line_break_test = @embedFile("auxiliary/LineBreakTest.txt");
