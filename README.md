@@ -3,8 +3,9 @@
 xenoglyph handles Unicode text in Zig: grapheme clusters, forward and
 backward, words and sentences (UAX #29), line break opportunities (UAX #14),
 normalization (UAX #15) and NFKC_Casefold, case mapping, folding and caseless
-matching, how many terminal cells text takes, and the character properties
-those rest on, from the Unicode Character Database 18.0.0. Nothing in it
+matching, how many terminal cells text takes, internationalized domain names
+(UTS #46) and Punycode, and the character properties those rest on, from the
+Unicode Character Database 18.0.0. Nothing in it
 allocates, nothing holds global state, and every call builds for a target with
 no operating system.
 
@@ -296,6 +297,21 @@ to the end of its run and given out there. The suite checks both facts for every
 code point. So a match reads the text once, and a long run once more for each
 combining class in it, as normalizing does.
 
+### Domain names
+
+`idna.toAscii(name, writer, options)` is UTS #46's ToASCII with Nontransitional
+Processing: the name mapped through the IDNA Mapping Table, normalized to NFC,
+its `xn--` labels decoded, every label checked, and each label with non-ASCII
+written as `xn--` and its Punycode (RFC 3492). `idna.toUnicode` gives the name to
+show and always writes it. Both return `idna.Failures`, what failed by name:
+disallowed code points, the STD3 rules, hyphens, a leading combining mark, bad
+Punycode, the Bidi rule of RFC 5893 and the ContextJ rules of RFC 5892, and DNS
+lengths; `toAscii` writes nothing when anything failed. `idna.Options` holds
+UTS #46's flags, its strict conformance settings by default, and
+`Options.url` is the URL Standard's. A name is worked on in buffers on the
+stack, up to `idna.max_code_points` once mapped (no DNS name comes near it).
+`punycode.encode` and `punycode.decode` are the encoding alone.
+
 ### Width
 
 Unicode defines no cell width; terminals do. `width` states its model as rules.
@@ -391,6 +407,9 @@ it covers. Every iterator's `offset()` is where its next segment starts.
 | `graphemeBreak`, `indicConjunctBreak`, `wordBreak`, `sentenceBreak`, `lineBreak` | The break classes of UAX #29 and UAX #14 |
 | `emoji(cp)` | Emoji, Emoji_Presentation, Emoji_Modifier, Emoji_Modifier_Base, Emoji_Component, Extended_Pictographic, and whether it has emoji variation sequences |
 | `core(cp)` | The binary properties of DerivedCoreProperties.txt: Alphabetic, Lowercase, Uppercase, Cased, Case_Ignorable, the Changes_When properties, ID_Start, ID_Continue, XID_Start, XID_Continue, Default_Ignorable_Code_Point, Grapheme_Base, Grapheme_Extend, Math |
+| `idna.toAscii(name, writer, options)`, `idna.toUnicode` | A domain name for DNS or for showing (UTS #46), and what failed |
+| `punycode.encode(code_points, writer)`, `punycode.decode(text, out)` | Punycode (RFC 3492) |
+| `bidiClass`, `joiningType` | Bidi_Class (with the defaults of unassigned code points), Joining_Type |
 | `utf8.decode`, `utf8.Iterator` | Code points of any bytes, ill-formed subparts as U+FFFD |
 | `utf8.encode(iterator, writer)` | Writes the code points an iterator gives as UTF-8 |
 
@@ -412,6 +431,9 @@ property's default, as an unassigned code point does.
   NFKC_Simple_Casefold, and no identifier profiles (UAX #31).
 - No compatibility caseless match (D146): identifier caseless match covers
   loose matching of compatibility characters.
+- No Transitional Processing for domain names (UTS #46 deprecates it), no
+  CONTEXTO rules (optional for clients), and no confusable or mixed-script
+  checks (UTS #39).
 
 ## Platforms
 
@@ -448,7 +470,9 @@ With `.after_base` modifiers every line holds
 with a boundary added before a skin tone that follows no modifier base, and with
 `.as_other` controls every line that has no control, CR or LF holds unchanged. Every one of the 5,244 sequences of emoji-test.txt is one
 cluster under both modifier rules, and each of the 3,972 fully-qualified ones
-and components is 2 columns.
+and components is 2 columns. All 6,396 test lines of IdnaTestV2.txt pass, toUnicode
+and toASCII with Nontransitional Processing and every check on (a line that
+expects a failure is checked for one, as the file allows).
 
 Every code point NormalizationTest.txt does not list is its own normal form in
 all four forms. NFKC_Casefold of every code point is DerivedNormalizationProps.txt's,
@@ -477,7 +501,9 @@ text with runs of up to a hundred marks are what a plain allocating
 implementation gives; folding, lowercasing and uppercasing are idempotent in
 every language tailoring; and each caseless match agrees with the transform it
 is defined as, done a step at a time over the whole text, on generated pairs of
-texts in other cases and normal forms. They run on seeded
+texts in other cases and normal forms. Punycode decodes what it encodes and
+refuses or decodes any bytes; a domain name toASCII accepts is ASCII, processes
+to itself and shows with no failure, under both option sets. They run on seeded
 inputs in every `bay test`, and under `bay test --fuzz` they search further.
 Nothing here can allocate: no call takes an allocator. The source checks gate
 glint's aegis rules A001 to A004: no raw arithmetic or cast on a domain value

@@ -25,6 +25,8 @@ pub const LineBreak = classes.LineBreak;
 pub const Emoji = classes.Emoji;
 pub const Core = classes.Core;
 pub const Script = script_data.Script;
+pub const BidiClass = classes.BidiClass;
+pub const JoiningType = classes.JoiningType;
 
 /// The largest code point.
 pub const max_code_point: u21 = 0x10ffff;
@@ -99,6 +101,21 @@ pub fn scriptExtensions(cp: u21) []const Script {
     const index = script_data.extensions.get(cp);
     if (index == 0) return single(script(cp));
     return script_data.sets[index - 1];
+}
+
+/// Bidi_Class (UAX #9), with the defaults DerivedBidiClass.txt gives
+/// unassigned code points (R or AL in the right-to-left blocks).
+pub fn bidiClass(cp: u21) BidiClass {
+    if (cp > max_code_point) return .left_to_right;
+    const r: classes.Idna = @bitCast(data.idna.records[data.idna.table.get(cp)]);
+    return r.bidi;
+}
+
+/// Joining_Type (DerivedJoiningType.txt).
+pub fn joiningType(cp: u21) JoiningType {
+    if (cp > max_code_point) return .non_joining;
+    const r: classes.Idna = @bitCast(data.idna.records[data.idna.table.get(cp)]);
+    return r.joining;
 }
 
 const every_script = std.enums.values(Script);

@@ -1,6 +1,7 @@
 //! Unicode text handling: grapheme, word and sentence segmentation
 //! (UAX #29), terminal cell widths, and character properties, from the
-//! Unicode Character Database 18.0.0. Nothing allocates.
+//! Unicode Character Database 18.0.0; internationalized domain names (UTS
+//! #46) and Punycode. Nothing allocates.
 const std = @import("std");
 const domains = @import("domains.zig");
 
@@ -13,6 +14,8 @@ pub const line = @import("line.zig");
 pub const normalize = @import("normalize.zig");
 pub const case = @import("case.zig");
 pub const properties = @import("properties.zig");
+pub const idna = @import("idna.zig");
+pub const punycode = @import("punycode.zig");
 
 /// A number of bytes: a length, or an offset into a text.
 pub const Bytes = domains.Bytes;
@@ -35,6 +38,8 @@ pub const LineBreak = properties.LineBreak;
 pub const Emoji = properties.Emoji;
 pub const Core = properties.Core;
 pub const Script = properties.Script;
+pub const BidiClass = properties.BidiClass;
+pub const JoiningType = properties.JoiningType;
 
 pub const generalCategory = properties.generalCategory;
 pub const eastAsianWidth = properties.eastAsianWidth;
@@ -47,6 +52,8 @@ pub const emoji = properties.emoji;
 pub const core = properties.core;
 pub const script = properties.script;
 pub const scriptExtensions = properties.scriptExtensions;
+pub const bidiClass = properties.bidiClass;
+pub const joiningType = properties.joiningType;
 
 /// The grapheme clusters of a string (UAX #29).
 pub const graphemes = grapheme.iterate;

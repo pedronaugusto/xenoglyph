@@ -15,6 +15,7 @@
 const std = @import("std");
 const classes = @import("classes");
 const mappings = @import("mappings.zig");
+const idna = @import("idna.zig");
 
 const Allocator = std.mem.Allocator;
 pub const code_points = 0x110000;
@@ -109,6 +110,7 @@ fn generate(gpa: Allocator, ucd: Ucd) ![]const File {
     const ud = try mappings.UnicodeData.read(gpa, ucd);
     try files.append(gpa, .{ .name = "normalization.zig", .bytes = try mappings.normalizationFile(gpa, ucd, ud) });
     try files.append(gpa, .{ .name = "casing.zig", .bytes = try mappings.caseFile(gpa, ucd, p, ud) });
+    try files.append(gpa, .{ .name = "idna.zig", .bytes = try idna.idnaFile(gpa, ucd, aliases, p, ud) });
     for (files.items) |*file| file.bytes = try formatted(gpa, file.name, file.bytes);
     return files.toOwnedSlice(gpa);
 }
@@ -192,7 +194,7 @@ fn loose(gpa: Allocator, name: []const u8) ![]const u8 {
 
 /// PropertyValueAliases.txt: every alias of a value, by property, to the
 /// value's long name.
-const Aliases = struct {
+pub const Aliases = struct {
     /// "<property>:<loose alias>" to the long name.
     long: std.StringHashMapUnmanaged([]const u8),
     /// Every script, its short and long names, in file order.
@@ -224,7 +226,7 @@ const Aliases = struct {
     }
 
     /// The value of `E` that `name` names, by the aliases of `property`.
-    fn value(a: Aliases, gpa: Allocator, comptime E: type, property: []const u8, name: []const u8) !E {
+    pub fn value(a: Aliases, gpa: Allocator, comptime E: type, property: []const u8, name: []const u8) !E {
         const key = try gpa.print("{s}:{s}", .{ property, try loose(gpa, name) });
         const long = a.long.get(key) orelse {
             std.log.err("{s}={s} is not in PropertyValueAliases.txt", .{ property, name });
@@ -361,7 +363,7 @@ pub fn filled(gpa: Allocator, comptime T: type, value: T) ![]T {
     return s;
 }
 
-fn enumerated(gpa: Allocator, ucd: Ucd, aliases: Aliases, path: []const u8, property: []const u8, comptime E: type, out: []E) !void {
+pub fn enumerated(gpa: Allocator, ucd: Ucd, aliases: Aliases, path: []const u8, property: []const u8, comptime E: type, out: []E) !void {
     var lines: Lines = .init(try ucd.read(path));
     while (try lines.next()) |l| {
         const v = try aliases.value(gpa, E, property, l.field(0));

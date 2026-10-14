@@ -86,6 +86,24 @@ fn expectEnumFile(comptime E: type, text: []const u8, property: []const u8, defa
     }
 }
 
+test "Joining_Type of every code point" {
+    try expectEnumFile(properties.JoiningType, ucd.joining_type, "jt", .non_joining, properties.joiningType);
+}
+
+test "Bidi_Class of every code point, the defaults of the @missing lines included" {
+    const want = try gpa.alloc(properties.BidiClass, all);
+    defer gpa.free(want);
+    @memset(want, .left_to_right);
+    const marker = "# @missing:";
+    var it = lines(ucd.bidi_class);
+    while (it.next()) |raw| {
+        const missing = std.mem.startsWith(u8, raw, marker);
+        const l = try parseLine(if (missing) raw[marker.len..] else raw) orelse continue;
+        @memset(want[l.first .. @as(usize, l.last) + 1], try valueOf(properties.BidiClass, "bc", l.value));
+    }
+    for (want, 0..) |w, cp| try std.testing.expectEqual(w, properties.bidiClass(@intCast(cp)));
+}
+
 test "General_Category of every code point" {
     try expectEnumFile(properties.GeneralCategory, ucd.general_category, "gc", .unassigned, properties.generalCategory);
 }

@@ -12,6 +12,7 @@ pub const layers: []const gantry.rules.Layer = &.{
         "src/properties.zig",
         "src/records.zig",
         "src/utf8.zig",
+        "src/punycode.zig",
     } },
     .{ .name = "grapheme clusters and canonical ordering", .patterns = &.{ "src/grapheme.zig", "src/canonical.zig" } },
     .{ .name = "words, sentences and widths", .patterns = &.{
@@ -22,6 +23,7 @@ pub const layers: []const gantry.rules.Layer = &.{
         "src/normalize.zig",
     } },
     .{ .name = "case", .patterns = &.{"src/case.zig"} },
+    .{ .name = "domain names", .patterns = &.{"src/idna.zig"} },
     .{ .name = "public", .patterns = &.{"src/xenoglyph.zig"} },
 };
 
@@ -41,6 +43,7 @@ pub const reexports = [_]struct { from: []const u8, to: []const u8 }{
     .{ .from = "src/data.zig", .to = "src/data/wrapping.zig" },
     .{ .from = "src/data.zig", .to = "src/data/normalization.zig" },
     .{ .from = "src/data.zig", .to = "src/data/casing.zig" },
+    .{ .from = "src/data.zig", .to = "src/data/idna.zig" },
 };
 
 pub const modules: []const gantry.NamedModule = &.{};

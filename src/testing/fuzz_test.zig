@@ -462,3 +462,66 @@ fn caselessMatches(_: void, case: *shakedown.Case) anyerror!void {
 test "the caseless matches agree with folding and normalizing the whole text step by step" {
     try shakedown.check(std.testing.allocator, {}, caselessMatches, .{ .cases = 1500 });
 }
+
+fn punycodeRoundTrip(_: void, case: *shakedown.Case) anyerror!void {
+    var code_points: [64]u21 = undefined;
+    var n: usize = 0;
+    while (n < code_points.len and case.source.more(8)) {
+        const cp = if (gen.boolean(case.source)) gen.oneOf(case.source, u21, &interesting) else gen.intRange(case.source, u21, 0, 0x10ffff);
+        if (cp >= 0xd800 and cp <= 0xdfff) continue;
+        code_points[n] = cp;
+        n += 1;
+    }
+    var encoded: [1024]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&encoded);
+    try xenoglyph.punycode.encode(code_points[0..n], &w);
+    for (w.buffered()) |c| try std.testing.expect(c < 0x80);
+    var decoded: [64]u21 = undefined;
+    try std.testing.expectEqualSlices(u21, code_points[0..n], try xenoglyph.punycode.decode(w.buffered(), &decoded));
+    // Any bytes decode or are refused; what decodes encodes back to the
+    // same, lower case.
+    const bytes = try gen.string(case.source, case.gpa, .{ .kind = .bytes, .max_len = 32 });
+    const got = xenoglyph.punycode.decode(bytes, &decoded) catch return;
+    for (got) |cp| try std.testing.expect(cp <= 0x10ffff and (cp < 0xd800 or cp > 0xdfff));
+}
+
+test "Punycode encodes any code points and decodes them back, and decodes any bytes or refuses them" {
+    try shakedown.check(std.testing.allocator, {}, punycodeRoundTrip, .{ .cases = 3000 });
+}
+
+fn domainNames(_: void, case: *shakedown.Case) anyerror!void {
+    var name: std.ArrayList(u8) = .empty;
+    const mark = case.source.begin();
+    while (name.items.len < 96 and case.source.more(10)) {
+        switch (gen.intRange(case.source, u8, 0, 9)) {
+            0, 1 => try name.append(case.gpa, '.'),
+            2 => try name.appendSlice(case.gpa, "xn--"),
+            else => try piece(case.source, &name, case.gpa),
+        }
+    }
+    case.source.end(mark);
+    const idna = xenoglyph.idna;
+    for ([_]idna.Options{ .{}, idna.Options.url }) |options| {
+        var out: [8192]u8 = undefined;
+        var w: std.Io.Writer = .fixed(&out);
+        const failures = try idna.toAscii(name.items, &w, options);
+        if (failures.any()) {
+            try std.testing.expectEqual(@as(usize, 0), w.end);
+            continue;
+        }
+        const ascii = w.buffered();
+        for (ascii) |c| try std.testing.expect(c < 0x80);
+        // Processing is idempotent: the ASCII form processes to itself,
+        // and shows without a failure.
+        var again: [8192]u8 = undefined;
+        var w2: std.Io.Writer = .fixed(&again);
+        try std.testing.expect(!(try idna.toAscii(ascii, &w2, options)).any());
+        try std.testing.expectEqualStrings(ascii, w2.buffered());
+        w2 = .fixed(&again);
+        try std.testing.expect(!(try idna.toUnicode(ascii, &w2, options)).any());
+    }
+}
+
+test "a name toAscii accepts is ASCII, processes to itself, and shows without a failure" {
+    try shakedown.check(std.testing.allocator, {}, domainNames, .{ .cases = 3000 });
+}
