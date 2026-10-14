@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-14
+
 ### Added
 
 - `idna`: internationalized domain names as UTS #46 processes them, with Nontransitional Processing. `toAscii` gives the name DNS looks up and `toUnicode` the name to show; each maps through the IDNA Mapping Table, normalizes to NFC, decodes `xn--` labels and checks every label (STD3 rules, hyphens, a leading combining mark, the Bidi rule of RFC 5893, the ContextJ rules of RFC 5892, DNS lengths), and returns `Failures` by name. `Options` defaults to UTS #46's strict settings; `Options.url` is the URL Standard's. All 6,396 test lines of IdnaTestV2.txt pass.
