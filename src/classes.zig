@@ -363,3 +363,64 @@ pub const Special = packed struct(u128) {
     title: Mapping = .{},
     fold: Mapping = .{},
 };
+
+/// Bidi_Class (UAX #9).
+pub const BidiClass = enum(u5) {
+    left_to_right,
+    right_to_left,
+    arabic_letter,
+    european_number,
+    european_separator,
+    european_terminator,
+    arabic_number,
+    common_separator,
+    nonspacing_mark,
+    boundary_neutral,
+    paragraph_separator,
+    segment_separator,
+    white_space,
+    other_neutral,
+    left_to_right_embedding,
+    left_to_right_override,
+    right_to_left_embedding,
+    right_to_left_override,
+    pop_directional_format,
+    left_to_right_isolate,
+    right_to_left_isolate,
+    first_strong_isolate,
+    pop_directional_isolate,
+};
+
+/// Joining_Type (ArabicShaping.txt, as DerivedJoiningType.txt gives it).
+pub const JoiningType = enum(u3) {
+    non_joining,
+    join_causing,
+    dual_joining,
+    left_joining,
+    right_joining,
+    transparent,
+};
+
+/// A code point's status in the IDNA Mapping Table (UTS #46 §5).
+pub const IdnaStatus = enum(u3) {
+    valid,
+    ignored,
+    mapped,
+    deviation,
+    disallowed,
+};
+
+/// What IDNA processing (UTS #46) reads of a code point: its status, and
+/// the properties the CheckBidi (RFC 5893) and CheckJoiners (RFC 5892
+/// Appendix A) rules read. A mapped or deviation code point's mapping is in
+/// the IDNA table's list of mappings.
+pub const Idna = packed struct(u16) {
+    status: IdnaStatus = .valid,
+    bidi: BidiClass = .left_to_right,
+    joining: JoiningType = .non_joining,
+    /// Canonical_Combining_Class=Virama (9).
+    virama: bool = false,
+    /// General_Category=Mark.
+    mark: bool = false,
+    _: u3 = 0,
+};

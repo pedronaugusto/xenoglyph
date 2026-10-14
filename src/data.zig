@@ -12,3 +12,4 @@ pub const script = @import("data/script.zig");
 pub const wrapping = @import("data/wrapping.zig");
 pub const normalization = @import("data/normalization.zig");
 pub const casing = @import("data/casing.zig");
+pub const idna = @import("data/idna.zig");

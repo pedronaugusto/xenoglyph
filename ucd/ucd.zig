@@ -25,3 +25,6 @@ pub const unicode_data = @embedFile("UnicodeData.txt");
 pub const special_casing = @embedFile("SpecialCasing.txt");
 pub const case_folding = @embedFile("CaseFolding.txt");
 pub const derived_normalization_props = @embedFile("DerivedNormalizationProps.txt");
+pub const idna_test = @embedFile("idna/IdnaTestV2.txt");
+pub const bidi_class = @embedFile("extracted/DerivedBidiClass.txt");
+pub const joining_type = @embedFile("extracted/DerivedJoiningType.txt");
