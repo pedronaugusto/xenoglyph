@@ -14,10 +14,6 @@ const normalize = @import("normalize.zig");
 const utf8 = @import("utf8.zig");
 pub const punycode = @import("punycode.zig");
 
-const Status = classes.IdnaStatus;
-const Bidi = classes.BidiClass;
-const Joining = classes.JoiningType;
-
 /// The most code points a name may have once mapped and normalized: past
 /// any name DNS holds (253 bytes), so a name past it is refused whole
 /// (`error.NameTooLong`).
