@@ -98,6 +98,7 @@
         "id": "A004",
         "level": "gate"
       },
+      {"id": "A005", "level": "gate"},
       {
         "id": "P003",
         "level": "gate"
