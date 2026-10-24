@@ -38,7 +38,7 @@ pub fn dev(b: *std.Build, tools: type) void {
     write.setCwd(p.path("."));
     write.addArgs(&.{ "ucd", "src/data" });
     write.has_side_effects = true;
-    b.step("generate", "Write src/data from the UCD files in ucd/").dependOn(&write.step);
+    b.step("ucd", "Write src/data from the UCD files in ucd/").dependOn(&write.step);
     const compare = b.addRunArtifact(generator);
     compare.setCwd(p.path("."));
     compare.addArgs(&.{ "ucd", "src/data", "--check" });

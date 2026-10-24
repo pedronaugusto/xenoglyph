@@ -352,7 +352,7 @@ generator tries every block size, with two stages or three, and keeps the
 smallest. The one table segmentation and width read on every code point stays
 two stages, and its entries index 39 distinct records that hold everything
 both need. The tables are committed: a project that depends on xenoglyph
-compiles them and fetches nothing else. `bay generate` writes them again, and
+compiles them and fetches nothing else. `bay ucd` writes them again, and
 `bay test` fails unless regenerating from `ucd/` reproduces them byte for byte.
 The UCD files are in the repository and outside what the package ships.
 
