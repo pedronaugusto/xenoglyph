@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-10-24
+
 ### Changed
 
 - Development: the lint gates glint's A005 as well (the aegis pack's five rules at gate).
