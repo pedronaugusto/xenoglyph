@@ -10,6 +10,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Development: the lint gates glint's A005 as well (the aegis pack's five rules at gate).
 - Development: `bay ucd` writes the tables from `ucd/`, where `bay generate` did: `generate` is preflight's step, which makes the CI caller for the package's pins, and a package step of that name ran in its place.
+- Pins aegis 0.1.17.
 
 ## [0.4.1] - 2026-10-14
 
