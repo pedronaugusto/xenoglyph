@@ -34,6 +34,8 @@ pub const bidi_brackets = @embedFile("BidiBrackets.txt");
 pub const bidi_mirroring = @embedFile("BidiMirroring.txt");
 
 /// encoding_rs's WHATWG-derived vectors (ucd/whatwg/encoding_rs, BSD 3-Clause: whatwg/LICENSE-WHATWG).
+/// The digests of encoding_rs 0.8.42 decoding and encoding the interop inputs (bench/rivals/encoding_rs).
+pub const encoding_rs_digests = @embedFile("whatwg/encoding_rs/digests.txt");
 pub const encoding_rs_big5_in = @embedFile("whatwg/encoding_rs/big5_in.txt");
 pub const encoding_rs_big5_in_ref = @embedFile("whatwg/encoding_rs/big5_in_ref.txt");
 pub const encoding_rs_big5_out = @embedFile("whatwg/encoding_rs/big5_out.txt");

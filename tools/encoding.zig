@@ -107,15 +107,27 @@ pub fn encodingFile(gpa: Allocator, ucd: generate.Ucd) ![]const u8 {
     try w.writeAll("};\n\n");
 
     // Encoding: each code point's pointer, plus one, by the standard's rules.
-    try encodeTrie(gpa, w, "jis0208_encode", "index jis0208 pointer: the first pointer", jis0208, .first, null);
+    try encodeTrie(gpa, w, "jis0208_encode", "index jis0208 pointer: the first pointer", jis0208, .first, null, &.{});
     try shiftJisAlternates(gpa, w, jis0208);
-    try encodeTrie(gpa, w, "euc_kr_encode", "index EUC-KR pointer", euc_kr, .first, null);
-    try encodeTrie(gpa, w, "gb18030_encode", "index gb18030 pointer", gb18030, .first, null);
-    try encodeTrie(gpa, w, "big5_encode", "index Big5 pointer: pointers below (0xA1 - 0x81) * 157 excluded, the last pointer for U+2550, U+255E, U+2561, U+256A, U+5341 and U+5345, else the first", big5, .big5, .{ 0, (0xa1 - 0x81) * 157 - 1 });
+    try encodeTrie(gpa, w, "euc_kr_encode", "index EUC-KR pointer", euc_kr, .first, null, &.{});
+    try encodeTrie(gpa, w, "gb18030_encode", "index gb18030 pointer, and the gb18030 encoder's table of 18 private-use code points (GB18030-2022)", gb18030, .first, null, &gb18030_private_use);
+    try encodeTrie(gpa, w, "big5_encode", "index Big5 pointer: pointers below (0xA1 - 0x81) * 157 excluded, the last pointer for U+2550, U+255E, U+2561, U+256A, U+5341 and U+5345, else the first", big5, .big5, .{ 0, (0xa1 - 0x81) * 157 - 1 }, &.{});
     return out.toOwnedSlice();
 }
 
 const Entry = struct { pointer: u32, code_point: u21 };
+
+/// The gb18030 encoder's table (step 4 of the standard's encoder, since its
+/// GB18030-2022 update): private-use code points whose former pointers index
+/// gb18030 now gives to other code points, encoded as those pointers' bytes.
+const gb18030_private_use = [_]Extra{
+    .{ 0xe78d, .{ 0xa6, 0xd9 } }, .{ 0xe78e, .{ 0xa6, 0xda } }, .{ 0xe78f, .{ 0xa6, 0xdb } },
+    .{ 0xe790, .{ 0xa6, 0xdc } }, .{ 0xe791, .{ 0xa6, 0xdd } }, .{ 0xe792, .{ 0xa6, 0xde } },
+    .{ 0xe793, .{ 0xa6, 0xdf } }, .{ 0xe794, .{ 0xa6, 0xec } }, .{ 0xe795, .{ 0xa6, 0xed } },
+    .{ 0xe796, .{ 0xa6, 0xf3 } }, .{ 0xe81e, .{ 0xfe, 0x59 } }, .{ 0xe826, .{ 0xfe, 0x61 } },
+    .{ 0xe82b, .{ 0xfe, 0x66 } }, .{ 0xe82c, .{ 0xfe, 0x67 } }, .{ 0xe832, .{ 0xfe, 0x6d } },
+    .{ 0xe843, .{ 0xfe, 0x7e } }, .{ 0xe854, .{ 0xfe, 0x90 } }, .{ 0xe864, .{ 0xfe, 0xa0 } },
+};
 
 /// index Shift_JIS pointer differs from index jis0208 pointer only for a code
 /// point whose first pointer is in 8272 to 8835 (NEC's selection of IBM
@@ -207,10 +219,13 @@ fn decodeIndex(w: *std.Io.Writer, name: []const u8, comptime T: []const u8, valu
 
 const Pick = enum { first, big5 };
 
+/// A code point and the two bytes the standard gives it outside its index.
+const Extra = struct { u21, [2]u8 };
+
 /// The trie from each code point to its pointer plus one (0: none), the
 /// pointer the standard's encoder takes: the first, or for Big5 the last
 /// for six code points, skipping `excluded` pointers.
-fn encodeTrie(gpa: Allocator, w: *std.Io.Writer, name: []const u8, what: []const u8, values: []const u21, pick: Pick, excluded: ?[2]u32) !void {
+fn encodeTrie(gpa: Allocator, w: *std.Io.Writer, name: []const u8, what: []const u8, values: []const u21, pick: Pick, excluded: ?[2]u32, extra: []const Extra) !void {
     const raw = try gpa.alloc(u32, generate.code_points);
     @memset(raw, 0);
     for (values, 0..) |cp, p| {
@@ -221,6 +236,13 @@ fn encodeTrie(gpa: Allocator, w: *std.Io.Writer, name: []const u8, what: []const
             else => false,
         };
         if (raw[cp] == 0 or last) raw[cp] = @intCast(p + 1);
+    }
+    // Code points given bytes in the standard's prose rather than its index
+    // (only gb18030's, whose bytes are the lead and trail of a pointer).
+    for (extra) |x| {
+        if (raw[x[0]] != 0) return error.ExtraHasPointer;
+        const trail_offset: u32 = if (x[1][1] < 0x7f) 0x40 else 0x41;
+        raw[x[0]] = (@as(u32, x[1][0]) - 0x81) * 190 + (x[1][1] - trail_offset) + 1;
     }
     try w.print("/// {s}, plus one; 0 where a code point has none.\n", .{what});
     try generate.writeShape(w, try generate.shape(gpa, raw, 2, .smallest), name, "u16");

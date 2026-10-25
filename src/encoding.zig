@@ -792,6 +792,9 @@ const Bytes = struct {
     again: bool = false,
     /// The code point has no bytes in the encoding.
     unmappable: bool = false,
+    /// The error is reported as U+FFFD, not the code point (ISO-2022-JP's
+    /// SO, SI and ESC, which would change how the bytes after them read).
+    as_replacement: bool = false,
 
     fn of(comptime n: u3, b: [n]u8) Bytes {
         var out: Bytes = .{ .len = n };
@@ -930,13 +933,14 @@ pub const Encoder = struct {
         while (true) {
             const r = e.step(enc, code);
             if (r.unmappable) {
+                const reported: u21 = if (r.as_replacement) 0xfffd else code;
                 if (e.options.mode == .fatal) {
-                    e.unmappable = code;
+                    e.unmappable = reported;
                     return error.Unmappable;
                 }
                 var digits: [7]u8 = undefined;
                 var at: usize = digits.len;
-                var rest: u21 = code;
+                var rest: u21 = reported;
                 while (true) {
                     at -= 1;
                     digits[at] = @intCast('0' + rest % 10);
@@ -972,7 +976,7 @@ pub const Encoder = struct {
     }
 
     fn iso2022Bytes(e: *Encoder, cp: u21) Bytes {
-        if ((e.iso == .ascii or e.iso == .roman) and (cp == 0x0e or cp == 0x0f or cp == 0x1b)) return .{ .unmappable = true };
+        if ((e.iso == .ascii or e.iso == .roman) and (cp == 0x0e or cp == 0x0f or cp == 0x1b)) return .{ .unmappable = true, .as_replacement = true };
         if (e.iso == .ascii and cp < 0x80) return .of(1, .{@intCast(cp)});
         if (e.iso == .roman and ((cp < 0x80 and cp != 0x5c and cp != 0x7e) or cp == 0xa5 or cp == 0x203e)) {
             if (cp < 0x80) return .of(1, .{@intCast(cp)});
