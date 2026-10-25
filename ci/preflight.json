@@ -49,6 +49,13 @@
         "xenoglyph"
       ]
     },
+    "zig build docs -- bidi": {
+      "source": "examples/usage.zig",
+      "region": "bidi",
+      "imports": [
+        "xenoglyph"
+      ]
+    },
     "zig build docs -- lines": {
       "source": "examples/usage.zig",
       "region": "lines",

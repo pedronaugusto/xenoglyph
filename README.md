@@ -4,7 +4,8 @@ xenoglyph handles Unicode text in Zig: grapheme clusters, forward and
 backward, words and sentences (UAX #29), line break opportunities (UAX #14),
 normalization (UAX #15) and NFKC_Casefold, case mapping, folding and caseless
 matching, how many terminal cells text takes, internationalized domain names
-(UTS #46) and Punycode, and the character properties those rest on, from the
+(UTS #46) and Punycode, bidirectional text (UAX #9) for layout, and the
+character properties those rest on, from the
 Unicode Character Database 18.0.0. Nothing in it
 allocates, nothing holds global state, and every call builds for a target with
 no operating system.
@@ -175,6 +176,37 @@ std.debug.assert(breaker.next(0x1f3fd)); // a skin tone after a letter stands al
 ```
 <!-- END GENERATED -->
 
+Bidirectional text, levels and runs for a layout engine, on the same byte
+offsets:
+
+<!-- BEGIN GENERATED zig build docs -- bidi -->
+```zig
+const xenoglyph = @import("xenoglyph");
+
+// An English sentence holding a Hebrew word: one paragraph, auto-detected
+// left to right. Levels and runs are on the text's own byte offsets.
+const text = "Read \u{5e9}\u{5dc}\u{5d5}\u{5dd} (shalom) twice.";
+var levels: [text.len]xenoglyph.bidi.Level = undefined;
+var scratch: [text.len]xenoglyph.bidi.Scratch = undefined;
+const paragraph: xenoglyph.bidi.Paragraph = .resolve(text, .fromRaw(0), .{}, .{ .levels = &levels, .scratch = &scratch });
+std.debug.assert(paragraph.direction() == .ltr);
+std.debug.assert(paragraph.levelAt(.fromRaw(5)) == 1); // the Hebrew word
+// After choosing line breaks (here the whole paragraph is one line), each
+// line is reordered: its runs in visual order, left to right.
+var runs: [text.len]xenoglyph.bidi.Run = undefined;
+const line = paragraph.line(paragraph.span, &runs);
+std.debug.assert(line.runs.len == 3);
+std.debug.assert(line.runs[1].direction() == .rtl);
+std.debug.assert(std.mem.eql(u8, line.runs[1].span.of(text), "\u{5e9}\u{5dc}\u{5d5}\u{5dd}"));
+// A right-to-left run shows its code points in reverse: the last letter
+// of the word is drawn first. A bracket in one shows its mirror.
+var visual = line.visual();
+for (0..5) |_| _ = visual.next();
+std.debug.assert(visual.next().?.eql(.fromRaw(11)));
+std.debug.assert(xenoglyph.bidi.mirror('(').? == ')');
+```
+<!-- END GENERATED -->
+
 ## Design
 
 ### Segmentation
@@ -248,6 +280,40 @@ read ahead, at most two items, is read only when a rule asks, so a pass is
 linear. The iterator carries that context from one segment to the next, since
 LB15a, LB19a, LB20a and LB21a read the item before a break. Fitting segments to
 a width is the caller's: `width.string` measures each.
+
+### Bidirectional text
+
+`bidi` is UAX #9 for Unicode 18.0.0, shaped for a layout engine as ICU's ubidi
+and SheenBidi are used: resolve a paragraph, let the engine choose its line
+breaks, then reorder each line. `Paragraph.resolve(text, start, options,
+buffers)` takes the paragraph that starts at `start` up to and including its
+separator (P1; a CR LF pair is one), finds its direction from its first strong
+character outside isolates when `options.direction` is `.auto` (P2, P3; HL1's
+`fallback` when there is none), and resolves the level of every byte: rules X1
+to X10, W1 to W7, N0 to N2, I1 and I2, as UAX #9 states them, with the
+125-deep embedding stack and BD16's 63-deep bracket stack. Brackets match up to
+canonical equivalence (U+2329 pairs with U+3009). Each byte of a code point
+has its code point's level, and a character X9 removes (BN, the embedding and
+override controls) the level before it. `Paragraph.line(span, buffer)` takes a
+line within the paragraph, applies L1 to it alone (segment and paragraph
+separators, and the whitespace and isolate controls before them or at the end
+of the line, to the paragraph level), then L2, and gives its runs in visual
+order, left to right; `Line.visual()` gives each code point's offset in display
+order. L3 is left to the shaper, as UAX #9 allows; L4 is `bidi.mirror`, the
+glyph an odd level shows.
+
+Every offset is a byte offset into the caller's text, the offsets `lines`
+gives its breaks at and `graphemes` its clusters, so an engine keeps one set.
+Nothing is allocated: the caller gives `Buffers`, a level and a 4-byte
+`Scratch` slot for each byte of the paragraph (a paragraph of up to 16 MiB).
+The algorithm runs on one representation, a slot per byte holding each code
+point's class at its first byte, the bytes after it skipped as X9 skips what it
+removes. An isolate initiator is linked to its matching PDI through the slots,
+and an opening bracket to its closing one, so an isolating run sequence is
+followed from one level run to the next without being built, and no rule is
+quadratic in the paragraph. The same rules run on a list of classes
+(`resolveClasses`, `reorderClasses`), which is how BidiTest.txt states its
+cases.
 
 ### Normalization
 
@@ -410,6 +476,11 @@ it covers. Every iterator's `offset()` is where its next segment starts.
 | `idna.toAscii(name, writer, options)`, `idna.toUnicode` | A domain name for DNS or for showing (UTS #46), and what failed |
 | `punycode.encode(code_points, writer)`, `punycode.decode(text, out)` | Punycode (RFC 3492) |
 | `bidiClass`, `joiningType` | Bidi_Class (with the defaults of unassigned code points), Joining_Type |
+| `bidi.Paragraph.resolve(text, start, options, buffers)` | A paragraph's direction and the level of every byte (UAX #9) |
+| `Paragraph.levelAt(offset)`, `Paragraph.runs()`, `Paragraph.line(span, buffer)` | A byte's level; level runs in logical order; a line reordered (L1, L2) as runs in visual order |
+| `Line.runs`, `Line.visual()` | The line's runs, left to right; its code points' offsets in display order |
+| `bidi.mirror(cp)`, `bidi.pairedBracket(cp)` | Bidi_Mirroring_Glyph; Bidi_Paired_Bracket and its type |
+| `bidi.resolveClasses`, `bidi.reorderClasses` | The same algorithm on classes alone |
 | `utf8.decode`, `utf8.Iterator` | Code points of any bytes, ill-formed subparts as U+FFFD |
 | `utf8.encode(iterator, writer)` | Writes the code points an iterator gives as UTF-8 |
 
@@ -423,8 +494,9 @@ property's default, as an unassigned code point does.
 - No tailoring of words, sentences or lines, no dictionary segmentation for
   Thai, Lao, Khmer, Myanmar, Chinese or Japanese (SA lines break only at
   spaces and punctuation), no hyphenation, and no locale data.
-- No bidirectional text, shaping or rendering: widths are the cells a
-  monospace terminal gives text, not glyph metrics.
+- No shaping or rendering: widths are the cells a monospace terminal gives
+  text, not glyph metrics, and `bidi` orders runs for a shaper without
+  applying L3 (combining marks), which shapers do.
 - No Grapheme_Link (deprecated), and no PropList properties beyond what the
   segmentation rules derive from.
 - No collation, no locale data beyond the Lithuanian and Turkic casings, no
@@ -472,7 +544,15 @@ with a boundary added before a skin tone that follows no modifier base, and with
 cluster under both modifier rules, and each of the 3,972 fully-qualified ones
 and components is 2 columns. All 6,396 test lines of IdnaTestV2.txt pass, toUnicode
 and toASCII with Nontransitional Processing and every check on (a line that
-expects a failure is checked for one, as the file allows).
+expects a failure is checked for one, as the file allows). BidiTest.txt passes
+every case at every paragraph direction its bits name (levels after L1 and the
+visual order), and all of BidiCharacterTest.txt: paragraph level, levels and
+visual order, through `Paragraph.resolve`, `line` and `visual`. The bracket and
+mirroring lists are BidiBrackets.txt and BidiMirroring.txt, and no other code
+point has either. Arbitrary text dense in the classes the rules treat
+specially (isolates, embeddings, brackets, numbers, separators, ill-formed
+bytes) resolves with every byte at a level, a code point's bytes at one, runs
+covering each paragraph, and each code point once in a line's visual order.
 
 Every code point NormalizationTest.txt does not list is its own normal form in
 all four forms. NFKC_Casefold of every code point is DerivedNormalizationProps.txt's,

@@ -21,6 +21,7 @@ pub fn main() !void {
     properties();
     stream();
     lines();
+    bidirectional();
     try transform();
 }
 
@@ -128,4 +129,30 @@ fn stream() void {
     std.debug.assert(breaker.next('a'));
     std.debug.assert(breaker.next(0x1f3fd)); // a skin tone after a letter stands alone
     // --- README:stream ---
+}
+
+fn bidirectional() void {
+    // --- README:bidi ---
+    // An English sentence holding a Hebrew word: one paragraph, auto-detected
+    // left to right. Levels and runs are on the text's own byte offsets.
+    const text = "Read \u{5e9}\u{5dc}\u{5d5}\u{5dd} (shalom) twice.";
+    var levels: [text.len]xenoglyph.bidi.Level = undefined;
+    var scratch: [text.len]xenoglyph.bidi.Scratch = undefined;
+    const paragraph: xenoglyph.bidi.Paragraph = .resolve(text, .fromRaw(0), .{}, .{ .levels = &levels, .scratch = &scratch });
+    std.debug.assert(paragraph.direction() == .ltr);
+    std.debug.assert(paragraph.levelAt(.fromRaw(5)) == 1); // the Hebrew word
+    // After choosing line breaks (here the whole paragraph is one line), each
+    // line is reordered: its runs in visual order, left to right.
+    var runs: [text.len]xenoglyph.bidi.Run = undefined;
+    const line = paragraph.line(paragraph.span, &runs);
+    std.debug.assert(line.runs.len == 3);
+    std.debug.assert(line.runs[1].direction() == .rtl);
+    std.debug.assert(std.mem.eql(u8, line.runs[1].span.of(text), "\u{5e9}\u{5dc}\u{5d5}\u{5dd}"));
+    // A right-to-left run shows its code points in reverse: the last letter
+    // of the word is drawn first. A bracket in one shows its mirror.
+    var visual = line.visual();
+    for (0..5) |_| _ = visual.next();
+    std.debug.assert(visual.next().?.eql(.fromRaw(11)));
+    std.debug.assert(xenoglyph.bidi.mirror('(').? == ')');
+    // --- README:bidi ---
 }
