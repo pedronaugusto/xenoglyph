@@ -20,7 +20,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- Development: preflight 0.18.0, with the aegis pack's rules A001-A021 at gate. The generator reads files with aegis's `own.readFile`, and `bidi`'s bracket stack is aegis's `bounded.Array`.
+- Development: preflight 0.18.1, with the aegis pack's rules A001-A021 at gate. The generator reads files with aegis's `own.readFile`, and `bidi`'s bracket stack is aegis's `bounded.Array`.
 - Pins aegis 0.1.18.
 - Development: `bench/security.zig`, UTS #39's rows: skeletons left to right and right to left, confusables (with the next identifier, and with itself), restriction levels and checks, in four scripts.
 - Development: `bench/collation.zig`, collation's rows: names sorted and given sort keys in six languages, under shifted and numeric, and a comparison that reads every level to its end.
