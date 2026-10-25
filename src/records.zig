@@ -68,7 +68,7 @@ pub inline fn readBefore(bytes: []const u8, end: usize) struct { index: u8, star
 /// sequence is at most four bytes. So the start is the last such byte in
 /// the four before `end` when what it starts reaches `end - 1`, and
 /// otherwise `end - 1` itself, a continuation byte nothing claims.
-fn codePointStart(bytes: []const u8, end: usize) usize {
+pub fn codePointStart(bytes: []const u8, end: usize) usize {
     const floor = end -| 4;
     var at = end;
     while (at > floor) {

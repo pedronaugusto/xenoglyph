@@ -13,3 +13,4 @@ pub const wrapping = @import("data/wrapping.zig");
 pub const normalization = @import("data/normalization.zig");
 pub const casing = @import("data/casing.zig");
 pub const idna = @import("data/idna.zig");
+pub const bidi = @import("data/bidi.zig");

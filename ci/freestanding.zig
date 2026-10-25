@@ -87,3 +87,13 @@ export fn xenoglyphCase(text: [*]const u8, len: usize, out: [*]u8, out_len: usiz
     if (xenoglyph.case.equal(.identifier, text[0..len], "x", .{})) return -4;
     return @intCast(w.buffered().len);
 }
+
+export fn xenoglyphBidi(text: [*]const u8, len: usize, levels: [*]xenoglyph.bidi.Level, scratch: [*]xenoglyph.bidi.Scratch, runs: [*]xenoglyph.bidi.Run) usize {
+    const bytes = text[0..len];
+    const p: xenoglyph.bidi.Paragraph = .resolve(bytes, .fromRaw(0), .{}, .{ .levels = levels[0..len], .scratch = scratch[0..len] });
+    const l = p.line(p.span, runs[0..len]);
+    var it = l.visual();
+    var n: usize = 0;
+    while (it.next()) |_| n += 1;
+    return n + @intFromBool(xenoglyph.bidi.mirror('(') != null) + @intFromBool(xenoglyph.bidi.pairedBracket('[') != null);
+}

@@ -16,11 +16,12 @@ const std = @import("std");
 const classes = @import("classes");
 const mappings = @import("mappings.zig");
 const idna = @import("idna.zig");
+const bidi = @import("bidi.zig");
 
 const Allocator = std.mem.Allocator;
 pub const code_points = 0x110000;
 
-const version = "18.0.0";
+pub const version = "18.0.0";
 
 pub fn main(init: std.process.Init) !void {
     const gpa = init.arena.allocator();
@@ -111,6 +112,7 @@ fn generate(gpa: Allocator, ucd: Ucd) ![]const File {
     try files.append(gpa, .{ .name = "normalization.zig", .bytes = try mappings.normalizationFile(gpa, ucd, ud) });
     try files.append(gpa, .{ .name = "casing.zig", .bytes = try mappings.caseFile(gpa, ucd, p, ud) });
     try files.append(gpa, .{ .name = "idna.zig", .bytes = try idna.idnaFile(gpa, ucd, aliases, p, ud) });
+    try files.append(gpa, .{ .name = "bidi.zig", .bytes = try bidi.bidiFile(gpa, ucd, ud) });
     for (files.items) |*file| file.bytes = try formatted(gpa, file.name, file.bytes);
     return files.toOwnedSlice(gpa);
 }

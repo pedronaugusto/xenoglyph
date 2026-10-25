@@ -16,6 +16,7 @@ pub const case = @import("case.zig");
 pub const properties = @import("properties.zig");
 pub const idna = @import("idna.zig");
 pub const punycode = @import("punycode.zig");
+pub const bidi = @import("bidi.zig");
 
 /// A number of bytes: a length, or an offset into a text.
 pub const Bytes = domains.Bytes;

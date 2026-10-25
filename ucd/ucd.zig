@@ -28,3 +28,7 @@ pub const derived_normalization_props = @embedFile("DerivedNormalizationProps.tx
 pub const idna_test = @embedFile("idna/IdnaTestV2.txt");
 pub const bidi_class = @embedFile("extracted/DerivedBidiClass.txt");
 pub const joining_type = @embedFile("extracted/DerivedJoiningType.txt");
+pub const bidi_test = @embedFile("BidiTest.txt");
+pub const bidi_character_test = @embedFile("BidiCharacterTest.txt");
+pub const bidi_brackets = @embedFile("BidiBrackets.txt");
+pub const bidi_mirroring = @embedFile("BidiMirroring.txt");
