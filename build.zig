@@ -118,6 +118,7 @@ pub fn dev(b: *std.Build, tools: type) void {
                 .{ .name = "transform", .source = "bench/transform.zig" },
                 .{ .name = "bidi", .source = "bench/bidi.zig" },
                 .{ .name = "encoding", .source = "bench/encoding.zig" },
+                .{ .name = "collation", .source = "bench/collation.zig" },
             },
             .imports = benchImports,
             .target = target,
