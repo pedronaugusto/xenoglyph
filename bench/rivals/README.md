@@ -18,3 +18,6 @@ committed). `cargo run --release -- digests > ../../ucd/whatwg/encoding_rs/diges
 writes the interop digests the suite checks: per encoding, every input of one
 and two bytes and the longer ones each decoder reads, decoded without BOM
 handling, and every scalar value encoded as one stream with HTML references.
+`cargo run --release -- bench ../../texts` times bench/encoding.zig's rows (the
+same sentences from `bench/texts`, repeated to 16 KiB) through encoding_rs:
+the best of ten rounds, microseconds per text.

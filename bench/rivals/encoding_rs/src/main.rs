@@ -7,7 +7,8 @@
 //! references). `src/testing/encoding_test.zig` builds the same inputs and
 //! must reach the same digests.
 //!
-//! `bench`: bench/encoding.zig's rows, the same texts, timed.
+//! `bench`: bench/encoding.zig's rows, the same texts, timed (the best of
+//! ten rounds, microseconds per 16 KiB text).
 use encoding_rs::Encoding;
 use sha2::{Digest, Sha256};
 use std::time::Instant;
@@ -159,12 +160,28 @@ fn digests() {
     }
 }
 
-/// Text for the benchmark rows, from the files bench/encoding.zig reads.
-fn texts() -> Vec<(&'static str, String)> {
+/// bench/encoding.zig's texts: each sentence of bench/texts repeated to
+/// 16 KiB or a little more, with the encodings its rows use.
+fn texts() -> Vec<(&'static str, String, &'static [&'static str])> {
     let dir = std::env::args().nth(2).unwrap_or_else(|| "../../texts".to_string());
-    ["latin", "cyrillic", "cjk"]
-        .iter()
-        .map(|k| (*k, std::fs::read_to_string(format!("{dir}/{k}.txt")).expect("bench text")))
+    let rows: [(&str, &[&str]); 7] = [
+        ("latin", &["windows-1252", "ISO-8859-15"]),
+        ("central", &["windows-1250", "ISO-8859-2"]),
+        ("cyrillic", &["windows-1251", "KOI8-R", "IBM866"]),
+        ("japanese", &["Shift_JIS", "EUC-JP", "ISO-2022-JP", "UTF-16LE", "UTF-8"]),
+        ("simplified", &["gb18030", "GBK"]),
+        ("traditional", &["Big5"]),
+        ("korean", &["EUC-KR"]),
+    ];
+    rows.iter()
+        .map(|(k, names)| {
+            let sentence = std::fs::read_to_string(format!("{dir}/{k}.txt")).expect("bench text");
+            let mut text = String::new();
+            while text.len() < 16 * 1024 {
+                text.push_str(&sentence);
+            }
+            (*k, text, *names)
+        })
         .collect()
 }
 
@@ -184,40 +201,34 @@ fn time(label: &str, bytes: usize, mut f: impl FnMut()) {
         }
         best = best.min(t.elapsed().as_nanos() as f64 / calls as f64);
     }
-    println!("{label} {:.1} us {:.0} MB/s", best / 1000.0, bytes as f64 / best * 1000.0);
+    // MB/s of UTF-8 text, both ways.
+    println!("{label} {:.2} us {:.0} MB/s", best / 1000.0, bytes as f64 / best * 1000.0);
 }
 
 fn bench() {
-    let rows: [(&str, &[&str]); 3] = [
-        ("latin", &["windows-1252", "ISO-8859-2", "UTF-16LE"]),
-        ("cyrillic", &["windows-1251", "KOI8-R", "UTF-16LE"]),
-        ("cjk", &["Shift_JIS", "EUC-JP", "ISO-2022-JP", "gb18030", "Big5", "EUC-KR", "UTF-16LE"]),
-    ];
-    let texts = texts();
-    for (kind, names) in rows {
-        let text = &texts.iter().find(|t| t.0 == kind).unwrap().1;
+    for (kind, text, names) in texts() {
         for name in names {
             let enc = Encoding::for_label(name.as_bytes()).unwrap();
             let bytes: Vec<u8> = if enc == encoding_rs::UTF_16LE {
                 text.encode_utf16().flat_map(|u| u.to_le_bytes()).collect()
             } else {
-                enc.encode(text).0.into_owned()
+                let (b, _, unmappable) = enc.encode(&text);
+                assert!(!unmappable);
+                b.into_owned()
             };
-            let mut decoder = enc.new_decoder_without_bom_handling();
-            let mut out = String::with_capacity(decoder.max_utf8_buffer_length(bytes.len()).unwrap());
-            time(&format!("decode {kind} {name}"), bytes.len(), || {
+            let mut out = String::with_capacity(4 * 16 * 1024 + 64);
+            time(&format!("decode {kind} {name}"), text.len(), || {
                 out.clear();
                 let mut d = enc.new_decoder_without_bom_handling();
                 let _ = d.decode_to_string(&bytes, &mut out, true);
                 std::hint::black_box(&out);
             });
-            let _ = &mut decoder;
             if enc.output_encoding() == enc {
-                let mut buf = Vec::with_capacity(bytes.len() * 2 + 64);
+                let mut buf = Vec::with_capacity(4 * 16 * 1024 + 64);
                 time(&format!("encode {kind} {name}"), text.len(), || {
                     buf.clear();
                     let mut e = enc.new_encoder();
-                    let _ = e.encode_from_utf8_to_vec(text, &mut buf, true);
+                    let _ = e.encode_from_utf8_to_vec(&text, &mut buf, true);
                     std::hint::black_box(&buf);
                 });
             }

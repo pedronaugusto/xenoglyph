@@ -367,7 +367,12 @@ only, none), and `decode` returns the encoding a BOM chose. An encoder in
 `.html` mode writes a code point its encoding lacks as `&#N;`, as a form
 submission does, and in `.fatal` mode stops at it and names it. Output goes to
 a `std.Io.Writer` the caller gives; nothing is allocated. ASCII runs are
-copied sixteen bytes at a time.
+copied sixteen bytes at a time, and while a decoder holds nothing the
+sequences that decode whole are read at once (a single-byte encoding's bytes
+through one compile-time table of their UTF-8), the standard's steps taking
+over at an error, a split sequence or an escape. Single-byte encoders are
+built at compile time from their decoding tables, for the encodings a program
+uses.
 
 The tables are the standard's index files, generated as the Unicode ones are:
 each multi-byte index is an array by pointer for decoding and a trie from code
@@ -549,6 +554,7 @@ it covers. Every iterator's `offset()` is where its next segment starts.
 | `encoding.decode(e, bytes, writer, options)`, `encoding.Decoder` | Bytes in an encoding to UTF-8, whole or in pieces; replacement or fatal errors, BOM sniffing |
 | `encoding.encode(e, text, writer, options)`, `encoding.Encoder` | UTF-8 to an encoding, whole or in pieces; HTML references or fatal errors for what it lacks |
 | `encoding.outputEncoding(e)`, `encoding.asciiCompatible(e)` | The encoding a form or URL is encoded in; whether ASCII is itself in it |
+| `utf8.wellFormed(bytes)` | How many bytes a string starts with that are well-formed UTF-8 |
 | `utf8.decode`, `utf8.Iterator` | Code points of any bytes, ill-formed subparts as U+FFFD |
 | `utf8.encode(iterator, writer)` | Writes the code points an iterator gives as UTF-8 |
 
@@ -628,12 +634,21 @@ covering each paragraph, and each code point once in a line's visual order.
 Every encoding decodes encoding_rs's test files, which are generated from the
 standard's indexes, to exactly its expected text, and encodes its expected
 bytes, for Big5, EUC-KR, gb18030, ISO-2022-JP, EUC-JP (JIS X 0208 and 0212) and
-Shift_JIS. Every label in `encodings.json` names its encoding, in any case and
+Shift_JIS. Every encoding decodes and encodes as encoding_rs 0.8.42 does over
+every input of one and two bytes, the longer ones each decoder reads (UTF-8's
+three- and four-byte sequences, gb18030's four-byte space, EUC-JP's JIS X 0212
+triples, ISO-2022-JP's escapes, UTF-16's surrogates) and every scalar value,
+checked by digests `bench/rivals/encoding_rs` writes. Every label in
+`encodings.json` names its encoding, in any case and
 with any whitespace around it, and CP437 takes all 256 bytes there and back.
+`utf8.wellFormed` agrees with decoding on generated text and on every
+two-byte sequence, and three on each lead, at each offset across a chunk's
+edge.
 Generated input dense in the bytes the decoders treat specially (escapes, lead
 bytes, BOMs, surrogates, truncated sequences) decodes the same in random pieces
 as in one, to well-formed UTF-8, which encodes the same in pieces as in one and
-decodes back to itself wherever no reference or U+FFFD was needed.
+decodes back to itself wherever no reference or U+FFFD was needed, written
+through the decoder's buffer and straight into the writer's.
 
 Every code point NormalizationTest.txt does not list is its own normal form in
 all four forms. NFKC_Casefold of every code point is DerivedNormalizationProps.txt's,
@@ -672,8 +687,12 @@ outside an explicit `.raw()` boundary.
 
 `bay bench` times segmentation, line breaking, width, normalization and case
 mapping over 64 KiB texts of ASCII, accented
-Latin, CJK, Devanagari, emoji and a mix, in ReleaseFast. Run from
-`zig-out/bench`, `segment`, `width` and `transform` print shakedown's JSON lines. `bay test`
+Latin, CJK, Devanagari, emoji and a mix, bidi over 16 KiB paragraphs, and every
+encoding's decoder and encoder over 16 KiB of text in the language it is for
+(`bench/texts`), in ReleaseFast. Run from `zig-out/bench`, `segment`, `width`,
+`transform`, `bidi` and `encoding` print shakedown's JSON lines;
+`bench/rivals` runs the bidi rows through SheenBidi and ICU and the encoding
+rows through encoding_rs. `bay test`
 runs each row once with `--smoke`; CI times nothing.
 
 ## Licence

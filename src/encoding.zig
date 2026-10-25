@@ -104,60 +104,136 @@ pub fn encode(encoding: Encoding, text: []const u8, w: *Writer, options: EncodeO
 // ---------------------------------------------------------------------------
 // Output
 
-/// UTF-8 or bytes written through a small buffer, so a code point is not a
-/// call on the writer.
+/// UTF-8 or bytes written straight into the writer's buffer, or through a
+/// small one of its own where the writer has too little, so a code point is
+/// not a call on the writer. What it wrote is the writer's at `flush`.
 const Out = struct {
     w: *Writer,
-    buffer: [256]u8 = undefined,
+    own: [256]u8 = undefined,
+    /// Where the next bytes go: the writer's unused buffer, or `own`.
+    dest: []u8 = &.{},
     len: usize = 0,
+    /// Chosen once: a writer's buffer can grow as it is written to.
+    direct: bool,
+
+    /// A writer with a buffer this large is written into directly.
+    const direct_min = 64;
+
+    /// `dest` starts empty: the first `room` points it, once `own` is where
+    /// it stays.
+    fn init(w: *Writer) Out {
+        return .{ .w = w, .direct = w.buffer.len >= direct_min };
+    }
 
     inline fn room(o: *Out, n: usize) Writer.Error!void {
-        if (o.len + n > o.buffer.len) try o.flush();
+        if (o.len + n > o.dest.len) try o.refill(n);
+    }
+
+    /// Hands what was written to the writer and makes room for `n` more.
+    fn refill(o: *Out, n: usize) Writer.Error!void {
+        try o.flush();
+        if (o.direct) o.dest = try o.w.writableSliceGreedy(@max(n, direct_min)) else o.dest = &o.own;
     }
 
     fn flush(o: *Out) Writer.Error!void {
-        try o.w.writeAll(o.buffer[0..o.len]);
+        if (o.direct) {
+            o.w.advance(o.len);
+            o.dest = o.dest[o.len..];
+        } else try o.w.writeAll(o.own[0..o.len]);
         o.len = 0;
     }
 
     fn bytes(o: *Out, run: []const u8) Writer.Error!void {
-        if (run.len > o.buffer.len - o.len) {
-            try o.flush();
-            if (run.len > o.buffer.len) return o.w.writeAll(run);
+        if (run.len > o.dest.len - o.len) {
+            if (run.len > 4 * o.own.len or !o.direct) {
+                try o.flush();
+                try o.w.writeAll(run);
+                if (o.direct) o.dest = o.w.buffer[o.w.end..] else o.dest = &o.own;
+                return;
+            }
+            try o.refill(run.len);
         }
-        @memcpy(o.buffer[o.len..][0..run.len], run);
+        @memcpy(o.dest[o.len..][0..run.len], run);
         o.len += run.len;
     }
 
     inline fn codePoint(o: *Out, cp: u21) Writer.Error!void {
         try o.room(4);
+        o.put(cp);
+    }
+
+    /// A code point as UTF-8, where `room(4)` made the room.
+    inline fn put(o: *Out, cp: u21) void {
         if (cp < 0x80) {
-            o.buffer[o.len] = @intCast(cp);
+            o.dest[o.len] = @intCast(cp);
             o.len += 1;
         } else if (cp < 0x800) {
-            o.buffer[o.len..][0..2].* = .{ @intCast(0xc0 | cp >> 6), @intCast(0x80 | (cp & 0x3f)) };
+            o.dest[o.len..][0..2].* = .{ @intCast(0xc0 | cp >> 6), @intCast(0x80 | (cp & 0x3f)) };
             o.len += 2;
         } else if (cp < 0x10000) {
-            o.buffer[o.len..][0..3].* = .{ @intCast(0xe0 | cp >> 12), @intCast(0x80 | ((cp >> 6) & 0x3f)), @intCast(0x80 | (cp & 0x3f)) };
+            o.dest[o.len..][0..3].* = .{ @intCast(0xe0 | cp >> 12), @intCast(0x80 | ((cp >> 6) & 0x3f)), @intCast(0x80 | (cp & 0x3f)) };
             o.len += 3;
         } else {
-            o.buffer[o.len..][0..4].* = .{ @intCast(0xf0 | cp >> 18), @intCast(0x80 | ((cp >> 12) & 0x3f)), @intCast(0x80 | ((cp >> 6) & 0x3f)), @intCast(0x80 | (cp & 0x3f)) };
+            o.dest[o.len..][0..4].* = .{ @intCast(0xf0 | cp >> 18), @intCast(0x80 | ((cp >> 12) & 0x3f)), @intCast(0x80 | ((cp >> 6) & 0x3f)), @intCast(0x80 | (cp & 0x3f)) };
             o.len += 4;
         }
     }
 };
 
-/// The length of the run of ASCII bytes that starts `bytes`.
-inline fn asciiRun(bytes: []const u8) usize {
-    var i: usize = 0;
-    const V = @Vector(16, u8);
-    while (i + 16 <= bytes.len) : (i += 16) {
-        const v: V = bytes[i..][0..16].*;
-        if (@reduce(.Or, v) >= 0x80) break;
-    }
-    while (i < bytes.len and bytes[i] < 0x80) i += 1;
-    return i;
+/// Makes room for `n` bytes at `at.*` in `dest.*`, the copies of `out`'s
+/// fields a loop holds.
+inline fn reserve(out: *Out, dest: *[]u8, at: *usize, n: usize) Writer.Error!void {
+    if (at.* + n <= dest.len) return;
+    out.len = at.*;
+    try out.refill(n);
+    dest.* = out.dest;
+    at.* = out.len;
 }
+
+/// `utf8.decode` with the two- and three-byte sequences most text is made
+/// of read here, in the loop that asks.
+inline fn readCodePoint(rest: []const u8) utf8.Decoded {
+    const lead = rest[0];
+    if (lead >= 0xc2 and lead <= 0xdf and rest.len >= 2 and rest[1] & 0xc0 == 0x80)
+        return .{ .code_point = (@as(u21, lead & 0x1f) << 6) | (rest[1] & 0x3f), .len = 2 };
+    if (lead >= 0xe1 and lead <= 0xef and lead != 0xed and rest.len >= 3 and rest[1] & 0xc0 == 0x80 and rest[2] & 0xc0 == 0x80)
+        return .{ .code_point = (@as(u21, lead & 0x0f) << 12) | (@as(u21, rest[1] & 0x3f) << 6) | (rest[2] & 0x3f), .len = 3 };
+    return utf8.decode(rest);
+}
+
+/// A code point's UTF-8 into four bytes of room; returns how many it took.
+inline fn putUtf8(dest: *[4]u8, cp: u21) usize {
+    if (cp < 0x80) {
+        dest[0] = @intCast(cp);
+        return 1;
+    } else if (cp < 0x800) {
+        dest[0..2].* = .{ @intCast(0xc0 | cp >> 6), @intCast(0x80 | (cp & 0x3f)) };
+        return 2;
+    } else if (cp < 0x10000) {
+        dest[0..3].* = .{ @intCast(0xe0 | cp >> 12), @intCast(0x80 | ((cp >> 6) & 0x3f)), @intCast(0x80 | (cp & 0x3f)) };
+        return 3;
+    }
+    dest.* = .{ @intCast(0xf0 | cp >> 18), @intCast(0x80 | ((cp >> 12) & 0x3f)), @intCast(0x80 | ((cp >> 6) & 0x3f)), @intCast(0x80 | (cp & 0x3f)) };
+    return 4;
+}
+
+fn singleByte(comptime e: Encoding) bool {
+    return @backingInt(e) >= @backingInt(Encoding.ibm866) and @backingInt(e) <= @backingInt(Encoding.x_mac_cyrillic) or e == .cp437;
+}
+
+/// Each single-byte encoding's bytes as UTF-8, packed: the bytes from the
+/// lowest, the length in the top byte; 0 where a byte maps to nothing.
+const single_byte_utf8 = blk: {
+    @setEvalBranchQuota(200_000);
+    var out: [tables.single_byte.len][256]u32 = undefined;
+    for (tables.single_byte, 0..) |table, k| for (0..256) |b| {
+        const cp: u21 = if (b < 0x80) b else table[b - 0x80];
+        var bytes: [4]u8 = @splat(0);
+        const n = if (cp == 0 and b != 0) 0 else putUtf8(&bytes, cp);
+        out[k][b] = if (n == 0) 0 else (@as(u32, n) << 24) | (std.mem.readInt(u32, &bytes, .little) & 0xffffff);
+    };
+    break :blk out;
+};
 
 // ---------------------------------------------------------------------------
 // Decoding
@@ -219,7 +295,7 @@ pub const Decoder = struct {
     /// `last` when it is the stream's end. What a sequence split between
     /// pieces needs is held until the next.
     pub fn decode(d: *Decoder, input: []const u8, last: bool, w: *Writer) DecodeError!void {
-        var out: Out = .{ .w = w };
+        var out: Out = .init(w);
         var rest = input;
         if (!d.sniffed) {
             rest = d.sniff(rest, last);
@@ -299,39 +375,28 @@ pub const Decoder = struct {
             .utf_8 => d.utf8_needed == 0,
             .gbk, .gb18030 => d.lead == 0 and d.second == 0 and d.third == 0,
             .big5, .euc_jp, .shift_jis, .euc_kr => d.lead == 0,
-            .iso_2022_jp, .replacement, .utf_16be, .utf_16le => false,
+            .utf_16be, .utf_16le => d.utf16_lead_byte == null and d.utf16_lead_surrogate == null,
+            .iso_2022_jp, .replacement => false,
             else => true,
         };
     }
 
     fn run(d: *Decoder, comptime e: Encoding, input: []const u8, last: bool, out: *Out) DecodeError!void {
         var i: usize = 0;
+        // The input read, counted once on the way out (an error included).
+        const base = d.consumed;
+        defer d.consumed = base + i;
         while (true) {
-            if (comptime asciiCompatible(e)) if (d.idle(e) and i < input.len) {
-                const n = asciiRun(input[i..]);
-                if (n != 0) {
-                    try out.bytes(input[i..][0..n]);
-                    i += n;
-                    d.consumed += n;
-                }
-                if (e == .utf_8 and i < input.len) {
-                    // A well-formed sequence whole in this piece is copied too.
-                    const got = utf8.decode(input[i..]);
-                    if (got.code_point != utf8.replacement or std.mem.startsWith(u8, input[i..], "\xef\xbf\xbd")) {
-                        try out.bytes(input[i..][0..got.len]);
-                        i += got.len;
-                        d.consumed += got.len;
-                        continue;
-                    }
-                }
+            if (comptime e != .iso_2022_jp and e != .replacement) if (i < input.len and d.idle(e)) {
+                i = try fast(e, input, i, out);
             };
+            if (e == .iso_2022_jp and i < input.len and d.queued == 0) i = try d.fastIso(input, i, out);
             const taken: Step = if (d.queued != 0) blk: {
                 d.queued -= 1;
                 break :blk d.step(e, d.queue[d.queued]);
             } else if (i < input.len) blk: {
                 const b = input[i];
                 i += 1;
-                d.consumed += 1;
                 break :blk d.step(e, b);
             } else if (last) d.end(e) else return;
             switch (taken) {
@@ -348,6 +413,213 @@ pub const Decoder = struct {
                 .finished => return,
             }
         }
+    }
+
+    /// While the decoder holds nothing: ASCII runs, and each sequence whole
+    /// in the input that the standard's steps decode to one code point, read
+    /// at once; returns where a byte needs the steps (an error, a sequence
+    /// the input ends inside, Big5's pairs, gb18030's four bytes, EUC-JP's
+    /// JIS X 0212), which leave the decoder holding nothing again after.
+    inline fn fast(comptime e: Encoding, input: []const u8, start: usize, out: *Out) Writer.Error!usize {
+        var i = start;
+        // Where the output goes, held here: a byte stored through `out`
+        // could be any of its fields, so the compiler would reload them all.
+        var dest = out.dest;
+        var at = out.len;
+        if (comptime singleByte(e)) return fastSingle(e, input, start, out);
+        decoding: while (i < input.len) {
+            const b = input[i];
+            const rest = input[i..];
+            if (comptime asciiCompatible(e)) if (b < 0x80) {
+                // Sixteen bytes stored whatever they are, and kept as far as
+                // they are ASCII.
+                if (rest.len >= 16) {
+                    try reserve(out, &dest, &at, 16);
+                    const V = @Vector(16, u8);
+                    const v: V = rest[0..16].*;
+                    dest[at..][0..16].* = v;
+                    const k = @ctz(@as(u16, @bitCast(v >= @as(V, @splat(0x80)))));
+                    at += k;
+                    i += k;
+                } else {
+                    try reserve(out, &dest, &at, 1);
+                    dest[at] = b;
+                    at += 1;
+                    i += 1;
+                }
+                continue;
+            };
+            if (e == .utf_8) {
+                // Well-formed UTF-8 is copied as it is, up to where it is not.
+                const n = utf8.wellFormed(rest);
+                out.len = at;
+                if (n == 0) return i;
+                try out.bytes(rest[0..n]);
+                dest = out.dest;
+                at = out.len;
+                i += n;
+                continue;
+            }
+            try reserve(out, &dest, &at, 4);
+            const cp: u21, const len: usize = switch (e) {
+                .utf_8 => comptime unreachable,
+                .x_user_defined => .{ 0xf780 + @as(u21, b) - 0x80, 1 },
+                .utf_16be, .utf_16le => blk: {
+                    if (rest.len < 2) break :decoding;
+                    const unit = std.mem.readInt(u16, rest[0..2], if (e == .utf_16be) .big else .little);
+                    if (unit < 0xd800 or unit > 0xdfff) break :blk .{ unit, 2 };
+                    if (unit > 0xdbff or rest.len < 4) break :decoding;
+                    const trail = std.mem.readInt(u16, rest[2..4], if (e == .utf_16be) .big else .little);
+                    if (trail < 0xdc00 or trail > 0xdfff) break :decoding;
+                    break :blk .{ 0x10000 + (@as(u21, unit - 0xd800) << 10) + (trail - 0xdc00), 4 };
+                },
+                .shift_jis => blk: {
+                    if (b == 0x80) break :blk .{ 0x80, 1 };
+                    if (b >= 0xa1 and b <= 0xdf) break :blk .{ 0xff61 - 0xa1 + @as(u21, b), 1 };
+                    if (rest.len < 2 or !((b >= 0x81 and b <= 0x9f) or (b >= 0xe0 and b <= 0xfc))) break :decoding;
+                    const t = rest[1];
+                    if (!((t >= 0x40 and t <= 0x7e) or (t >= 0x80 and t <= 0xfc))) break :decoding;
+                    const lead_offset: u8 = if (b < 0xa0) 0x81 else 0xc1;
+                    const pointer = @as(usize, b - lead_offset) * 188 + (t - @as(u8, if (t < 0x7f) 0x40 else 0x41));
+                    if (pointer >= 8836 and pointer <= 10715) break :blk .{ @intCast(0xe000 - 8836 + pointer), 2 };
+                    if (pointer >= tables.jis0208.len or tables.jis0208[pointer] == 0) break :decoding;
+                    break :blk .{ tables.jis0208[pointer], 2 };
+                },
+                .euc_jp => blk: {
+                    if (rest.len < 2) break :decoding;
+                    const t = rest[1];
+                    if (b == 0x8e and t >= 0xa1 and t <= 0xdf) break :blk .{ 0xff61 - 0xa1 + @as(u21, t), 2 };
+                    if (b < 0xa1 or b == 0xff or t < 0xa1 or t == 0xff) break :decoding;
+                    const pointer = @as(usize, b - 0xa1) * 94 + (t - 0xa1);
+                    if (tables.jis0208[pointer] == 0) break :decoding;
+                    break :blk .{ tables.jis0208[pointer], 2 };
+                },
+                .euc_kr => blk: {
+                    if (rest.len < 2 or b == 0x80 or b == 0xff) break :decoding;
+                    const t = rest[1];
+                    if (t < 0x41 or t == 0xff) break :decoding;
+                    const pointer = @as(usize, b - 0x81) * 190 + (t - 0x41);
+                    if (pointer >= tables.euc_kr.len or tables.euc_kr[pointer] == 0) break :decoding;
+                    break :blk .{ tables.euc_kr[pointer], 2 };
+                },
+                .gbk, .gb18030 => blk: {
+                    if (b == 0x80) break :blk .{ 0x20ac, 1 };
+                    if (rest.len < 2 or b == 0xff) break :decoding;
+                    const t = rest[1];
+                    if (!((t >= 0x40 and t <= 0x7e) or (t >= 0x80 and t <= 0xfe))) break :decoding;
+                    const pointer = @as(usize, b - 0x81) * 190 + (t - @as(u8, if (t < 0x7f) 0x40 else 0x41));
+                    if (pointer >= tables.gb18030.len or tables.gb18030[pointer] == 0) break :decoding;
+                    break :blk .{ tables.gb18030[pointer], 2 };
+                },
+                .big5 => blk: {
+                    if (rest.len < 2 or b == 0x80 or b == 0xff) break :decoding;
+                    const t = rest[1];
+                    if (!((t >= 0x40 and t <= 0x7e) or (t >= 0xa1 and t <= 0xfe))) break :decoding;
+                    const pointer = @as(usize, b - 0x81) * 157 + (t - @as(u8, if (t < 0x7f) 0x40 else 0x62));
+                    switch (pointer) {
+                        1133, 1135, 1164, 1166 => break :decoding,
+                        else => {},
+                    }
+                    if (pointer >= tables.big5.len or tables.big5[pointer] == 0) break :decoding;
+                    break :blk .{ big5CodePoint(pointer), 2 };
+                },
+                else => comptime unreachable,
+            };
+            at += putUtf8(dest[at..][0..4], cp);
+            i += len;
+        }
+        out.len = at;
+        return i;
+    }
+
+    /// `fast` for a single-byte encoding: each byte's UTF-8 from one table,
+    /// ASCII included, sixteen bytes at a time where the room for them is
+    /// made once.
+    inline fn fastSingle(comptime e: Encoding, input: []const u8, start: usize, out: *Out) Writer.Error!usize {
+        var i = start;
+        var dest = out.dest;
+        var at = out.len;
+        const table = &single_byte_utf8[singleByteIndex(e)];
+        single: {
+            while (input.len - i >= 16) {
+                try reserve(out, &dest, &at, 64);
+                const V = @Vector(16, u8);
+                const v: V = input[i..][0..16].*;
+                if (@reduce(.Or, v) < 0x80) {
+                    dest[at..][0..16].* = v;
+                    at += 16;
+                    i += 16;
+                    continue;
+                }
+                inline for (0..16) |j| {
+                    const p = table[input[i + j]];
+                    if (p == 0) {
+                        i += j;
+                        break :single;
+                    }
+                    std.mem.writeInt(u32, dest[at..][0..4], p & 0xffffff, .little);
+                    at += p >> 24;
+                }
+                i += 16;
+            }
+            while (i < input.len) : (i += 1) {
+                const p = table[input[i]];
+                if (p == 0) break;
+                try reserve(out, &dest, &at, 4);
+                std.mem.writeInt(u32, dest[at..][0..4], p & 0xffffff, .little);
+                at += p >> 24;
+            }
+        }
+        out.len = at;
+        return i;
+    }
+
+    /// ISO-2022-JP's `fast`: in its ASCII state the bytes that are
+    /// themselves (all below 0x80 but SO, SI and ESC), in its JIS X 0208
+    /// state the pairs that decode; the state is the same throughout, as
+    /// only an escape changes it.
+    inline fn fastIso(d: *Decoder, input: []const u8, start: usize, out: *Out) Writer.Error!usize {
+        var i = start;
+        var dest = out.dest;
+        var at = out.len;
+        switch (d.iso_state) {
+            .ascii => while (i < input.len) {
+                const rest = input[i..];
+                if (rest.len >= 16) {
+                    try reserve(out, &dest, &at, 16);
+                    const V = @Vector(16, u8);
+                    const v: V = rest[0..16].*;
+                    dest[at..][0..16].* = v;
+                    const stop = (v >= @as(V, @splat(0x80))) | (v == @as(V, @splat(0x1b))) | (v == @as(V, @splat(0x0e))) | (v == @as(V, @splat(0x0f)));
+                    const k = @ctz(@as(u16, @bitCast(stop)));
+                    at += k;
+                    i += k;
+                    if (k < 16) break;
+                } else {
+                    const b = rest[0];
+                    if (b >= 0x80 or b == 0x1b or b == 0x0e or b == 0x0f) break;
+                    try reserve(out, &dest, &at, 1);
+                    dest[at] = b;
+                    at += 1;
+                    i += 1;
+                }
+            },
+            .lead_byte => while (i + 1 < input.len) {
+                const l = input[i];
+                const t = input[i + 1];
+                if (l < 0x21 or l > 0x7e or t < 0x21 or t > 0x7e) break;
+                const cp = tables.jis0208[@as(usize, l - 0x21) * 94 + (t - 0x21)];
+                if (cp == 0) break;
+                try reserve(out, &dest, &at, 4);
+                at += putUtf8(dest[at..][0..4], cp);
+                i += 2;
+            },
+            else => {},
+        }
+        // Each byte read outside an escape unsets the standard's output flag.
+        if (i != start) d.iso_output = false;
+        out.len = at;
+        return i;
     }
 
     /// One byte through the standard's decoder of `e`.
@@ -744,13 +1016,13 @@ inline fn singleByteStep(comptime e: Encoding, b: u8) Step {
     return if (cp != 0) .{ .one = cp } else .failed;
 }
 
-/// index gb18030 ranges code point.
 /// index Big5 code point for a pointer it maps.
 fn big5CodePoint(pointer: usize) u21 {
     const plane: u21 = @intCast(tables.big5_plane_2[pointer / 64] >> @intCast(pointer % 64) & 1);
     return plane << 17 | tables.big5[pointer];
 }
 
+/// index gb18030 ranges code point.
 fn rangesCodePoint(pointer: u32) ?u21 {
     if ((pointer > 39419 and pointer < 189000) or pointer > 1237575) return null;
     if (pointer == 7457) return 0xe7c7;
@@ -828,7 +1100,7 @@ pub const Encoder = struct {
     /// when it is the stream's end. Ill-formed UTF-8 reads as U+FFFD, as
     /// xenoglyph decodes it everywhere.
     pub fn encode(e: *Encoder, input: []const u8, last: bool, w: *Writer) EncodeError!void {
-        var out: Out = .{ .w = w };
+        var out: Out = .init(w);
         switch (e.encoding) {
             // What came before an unmappable code point is written, then the error.
             inline else => |enc| e.run(enc, input, last, &out) catch |err| {
@@ -868,22 +1140,10 @@ pub const Encoder = struct {
             e.consumed += i;
         }
         while (i < input.len) {
-            if (comptime asciiCompatible(enc) or enc == .iso_2022_jp) if (enc != .iso_2022_jp or e.iso == .ascii) {
-                var n = asciiRun(input[i..]);
-                if (enc == .iso_2022_jp) {
-                    // 0E, 0F and 1B are errors in ISO-2022-JP.
-                    for (input[i..][0..n], 0..) |c, k| if (c == 0x0e or c == 0x0f or c == 0x1b) {
-                        n = k;
-                        break;
-                    };
-                }
-                if (n != 0) {
-                    try out.bytes(input[i..][0..n]);
-                    i += n;
-                    e.consumed += n;
-                    if (i == input.len) break;
-                }
-            };
+            const before = i;
+            i = try e.fast(enc, input, i, out);
+            e.consumed += i - before;
+            if (i == input.len) break;
             const rest = input[i..];
             const got = utf8.decode(rest);
             if (!last and got.code_point == utf8.replacement and got.len == rest.len and rest.len < 4 and incomplete(rest)) {
@@ -905,6 +1165,71 @@ pub const Encoder = struct {
             e.iso = .ascii;
             try out.bytes("\x1b\x28\x42");
         }
+    }
+
+    /// The code points that encode, read at once: well-formed UTF-8 copied
+    /// for UTF-8, and for the rest ASCII sixteen bytes at a time (where it is
+    /// itself) and each code point the encoding has written straight out.
+    /// Returns where a code point needs `codePoint`: one the encoding lacks,
+    /// ill-formed or unfinished input.
+    inline fn fast(e: *Encoder, comptime enc: Encoding, input: []const u8, start: usize, out: *Out) Writer.Error!usize {
+        if (enc == .utf_8) {
+            const n = utf8.wellFormed(input[start..]);
+            try out.bytes(input[start..][0..n]);
+            return start + n;
+        }
+        var i = start;
+        var dest = out.dest;
+        var at = out.len;
+        encoding: while (i < input.len) {
+            const rest = input[i..];
+            const plain_ascii = comptime asciiCompatible(enc) or enc == .iso_2022_jp;
+            if (plain_ascii and rest[0] < 0x80 and rest.len >= 16 and (enc != .iso_2022_jp or e.iso == .ascii)) {
+                try reserve(out, &dest, &at, 16);
+                const V = @Vector(16, u8);
+                const v: V = rest[0..16].*;
+                dest[at..][0..16].* = v;
+                var stop = v >= @as(V, @splat(0x80));
+                // 0E, 0F and 1B are errors in ISO-2022-JP.
+                if (enc == .iso_2022_jp) stop = stop | (v == @as(V, @splat(0x1b))) | (v == @as(V, @splat(0x0e))) | (v == @as(V, @splat(0x0f)));
+                const k = @ctz(@as(u16, @bitCast(stop)));
+                at += k;
+                i += k;
+                if (k != 0) continue;
+            }
+            const got = readCodePoint(rest);
+            if (got.code_point == utf8.replacement and !std.mem.startsWith(u8, rest, "\xef\xbf\xbd")) break;
+            if (comptime singleByte(enc)) {
+                // One byte, ASCII or from the encoder's pages, straight out.
+                const cp = got.code_point;
+                const b: u8 = if (cp < 0x80) @intCast(cp) else blk: {
+                    if (cp > 0xffff) break :encoding;
+                    const encoder = SingleByteEncoder(singleByteIndex(enc));
+                    const page = encoder.index[cp >> 8];
+                    if (page == 0) break :encoding;
+                    const found = encoder.pages[page - 1][cp & 0xff];
+                    if (found == 0) break :encoding;
+                    break :blk found;
+                };
+                try reserve(out, &dest, &at, 1);
+                dest[at] = b;
+                at += 1;
+                i += got.len;
+                continue;
+            }
+            while (true) {
+                const r = e.step(enc, got.code_point);
+                if (r.unmappable) break :encoding;
+                try reserve(out, &dest, &at, 4);
+                dest[at..][0..4].* = r.b;
+                at += r.len;
+                // ISO-2022-JP's escape, after which the code point again.
+                if (!r.again) break;
+            }
+            i += got.len;
+        }
+        out.len = at;
+        return i;
     }
 
     /// Whether `bytes` are the start of a well-formed sequence still short
@@ -960,7 +1285,7 @@ pub const Encoder = struct {
     }
 
     /// One code point through the standard's encoder of `enc`.
-    fn step(e: *Encoder, comptime enc: Encoding, cp: u21) Bytes {
+    inline fn step(e: *Encoder, comptime enc: Encoding, cp: u21) Bytes {
         return switch (enc) {
             .utf_8, .replacement => utf8Bytes(cp),
             .gbk, .gb18030 => gb18030Bytes(cp, enc == .gbk),
@@ -1030,15 +1355,39 @@ fn utf16Bytes(cp: u21, big: bool) Bytes {
 inline fn singleByteBytes(comptime enc: Encoding, cp: u21) Bytes {
     if (cp < 0x80) return .of(1, .{@intCast(cp)});
     if (cp > 0xffff) return .{ .unmappable = true };
-    const list = tables.single_byte_encode[singleByteIndex(enc)];
-    var low: usize = 0;
-    var high: usize = list.len;
-    while (low < high) {
-        const mid = (low + high) / 2;
-        if (list[mid][0] < cp) low = mid + 1 else high = mid;
-    }
-    if (low < list.len and list[low][0] == cp) return .of(1, .{@intCast(list[low][1])});
-    return .{ .unmappable = true };
+    const encoder = SingleByteEncoder(singleByteIndex(enc));
+    const page = encoder.index[cp >> 8];
+    if (page == 0) return .{ .unmappable = true };
+    const b = encoder.pages[page - 1][cp & 0xff];
+    if (b == 0) return .{ .unmappable = true };
+    return .of(1, .{b});
+}
+
+/// A single-byte encoding's encoder, built at compile time from its decoding
+/// table, for the encodings a program uses: each 256 code points that hold
+/// any of its characters a page of their bytes (0: none), and an index from
+/// a code point's high byte to its page (0: none). Where two bytes decode to
+/// one code point, the first is the index pointer the standard encodes.
+fn SingleByteEncoder(comptime k: usize) type {
+    @setEvalBranchQuota(100_000);
+    const table = tables.single_byte[k];
+    var by_high: [0x100]u8 = @splat(0);
+    var count: u8 = 0;
+    for (table) |cp| if (cp != 0 and by_high[cp >> 8] == 0) {
+        count += 1;
+        by_high[cp >> 8] = count;
+    };
+    var built: [count][0x100]u8 = @splat(@splat(0));
+    for (table, 0..) |cp, b| if (cp != 0) {
+        const at = &built[by_high[cp >> 8] - 1][cp & 0xff];
+        if (at.* == 0) at.* = @intCast(b + 0x80);
+    };
+    const final_index = by_high;
+    const final_pages = built;
+    return struct {
+        const index = final_index;
+        const pages = final_pages;
+    };
 }
 
 fn gb18030Bytes(cp: u21, gbk: bool) Bytes {

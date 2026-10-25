@@ -310,6 +310,44 @@ test "decoding agrees with std on well-formed UTF-8 and takes maximal subparts o
     try shakedown.check(std.testing.allocator, {}, decoding, .{ .cases = 4000 });
 }
 
+fn wellFormedPrefix(_: void, case: *shakedown.Case) anyerror!void {
+    // Text mostly well-formed, so the sixteen-byte chunks run, with its
+    // ill-formed bytes anywhere, a chunk's edges included.
+    var bytes: std.ArrayList(u8) = .empty;
+    for (0..gen.intRange(case.source, usize, 0, 12)) |_| try bytes.appendSlice(case.gpa, try text(case));
+    try std.testing.expectEqual(decodedPrefix(bytes.items), utf8.wellFormed(bytes.items));
+}
+
+fn decodedPrefix(bytes: []const u8) usize {
+    var at: usize = 0;
+    while (at < bytes.len) {
+        const d = utf8.decode(bytes[at..]);
+        if (d.code_point == utf8.replacement and !std.mem.startsWith(u8, bytes[at..], "\xef\xbf\xbd")) break;
+        at += d.len;
+    }
+    return at;
+}
+
+test "the well-formed prefix finds every sequence of two bytes, and of three on each lead, across a chunk's edge" {
+    var buffer: [40]u8 = undefined;
+    for (12..19) |offset| {
+        for (0..0x10000) |pair| {
+            @memset(&buffer, 'a');
+            std.mem.writeInt(u16, buffer[offset..][0..2], @intCast(pair), .big);
+            try std.testing.expectEqual(decodedPrefix(&buffer), utf8.wellFormed(&buffer));
+        }
+        for (0xc0..0x100) |lead| for (0..0x100) |second| for ([_]u8{ 0x41, 0x80, 0xbf, 0xc0 }) |third| {
+            @memset(&buffer, 'a');
+            buffer[offset..][0..4].* = .{ @intCast(lead), @intCast(second), third, 0x80 };
+            try std.testing.expectEqual(decodedPrefix(&buffer), utf8.wellFormed(&buffer));
+        };
+    }
+}
+
+test "the well-formed prefix of any text is where decoding first meets an ill-formed sequence" {
+    try shakedown.check(std.testing.allocator, {}, wellFormedPrefix, .{ .cases = 3000 });
+}
+
 /// std's decoding of one whole sequence of `bytes.len` bytes.
 fn stdDecode(bytes: []const u8) !u21 {
     return switch (bytes.len) {

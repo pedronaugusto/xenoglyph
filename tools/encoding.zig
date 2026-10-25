@@ -53,20 +53,8 @@ pub fn encodingFile(gpa: Allocator, ucd: generate.Ucd) ![]const u8 {
     tables[single_byte.len] = try cp437(gpa, ucd);
     for (tables) |t| try array(w, u16, &t, "    .{", "},\n");
     try w.writeAll("};\n\n");
-    try w.print("/// Each single-byte encoding's mapped code points, sorted, each with its byte: what its encoder searches.\npub const single_byte_encode = [{d}][]const [2]u16{{\n", .{single_byte.len + 1});
-    for (tables) |t| {
-        var pairs: std.ArrayList([2]u16) = .empty;
-        for (t, 0..) |cp, b| if (cp != 0) try pairs.append(gpa, .{ cp, @intCast(b + 0x80) });
-        std.mem.sort([2]u16, pairs.items, {}, struct {
-            fn less(_: void, a: [2]u16, b: [2]u16) bool {
-                return a[0] < b[0];
-            }
-        }.less);
-        try w.writeAll("    &.{");
-        for (pairs.items, 0..) |p, n| try w.print("{s}.{{ 0x{x}, 0x{x} }}", .{ if (n == 0) "" else ", ", p[0], p[1] });
-        try w.writeAll("},\n");
-    }
-    try w.writeAll("};\n\n");
+    // Their encoders are built from these at compile time (src/encoding.zig,
+    // SingleByteEncoder), for the encodings a program uses.
 
     // Multi-byte decoding indexes, by pointer, 0 where a pointer maps to nothing.
     const jis0208 = try dense(gpa, try index(gpa, ucd, "jis0208"));

@@ -140,9 +140,11 @@ fn pieces(_: void, c: *shake.Case) !void {
     const bytes = input.items;
     const bom = shake.gen.oneOf(c.source, @FieldType(encoding.DecodeOptions, "bom"), &.{ .sniff, .utf_8, .none });
     const whole = try decodeAll(c.gpa, e, bytes, .{ .bom = bom });
-    // The same input in random pieces decodes the same.
+    // The same input in random pieces decodes the same, written into the
+    // writer's own buffer (64 bytes, grown as it fills) where `whole` went
+    // through the decoder's.
     var d: encoding.Decoder = .init(e, .{ .bom = bom });
-    var out: std.Io.Writer.Allocating = .init(c.gpa);
+    var out: std.Io.Writer.Allocating = try .initCapacity(c.gpa, 64);
     var at: usize = 0;
     while (at < bytes.len) {
         const n = shake.gen.intRange(c.source, usize, 0, bytes.len - at);
@@ -156,7 +158,7 @@ fn pieces(_: void, c: *shake.Case) !void {
     const enc = encoding.outputEncoding(d.encoding);
     const encoded = try encodeAll(c.gpa, enc, whole, .{});
     var en: encoding.Encoder = .init(enc, .{});
-    var out2: std.Io.Writer.Allocating = .init(c.gpa);
+    var out2: std.Io.Writer.Allocating = try .initCapacity(c.gpa, 64);
     at = 0;
     while (at < whole.len) {
         const n = shake.gen.intRange(c.source, usize, 0, whole.len - at);
