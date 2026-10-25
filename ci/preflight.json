@@ -56,6 +56,13 @@
         "xenoglyph"
       ]
     },
+    "zig build docs -- encoding": {
+      "source": "examples/usage.zig",
+      "region": "encoding",
+      "imports": [
+        "xenoglyph"
+      ]
+    },
     "zig build docs -- lines": {
       "source": "examples/usage.zig",
       "region": "lines",

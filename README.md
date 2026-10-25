@@ -4,9 +4,10 @@ xenoglyph handles Unicode text in Zig: grapheme clusters, forward and
 backward, words and sentences (UAX #29), line break opportunities (UAX #14),
 normalization (UAX #15) and NFKC_Casefold, case mapping, folding and caseless
 matching, how many terminal cells text takes, internationalized domain names
-(UTS #46) and Punycode, bidirectional text (UAX #9) for layout, and the
+(UTS #46) and Punycode, bidirectional text (UAX #9) for layout, the
 character properties those rest on, from the
-Unicode Character Database 18.0.0. Nothing in it
+Unicode Character Database 18.0.0, and the legacy character encodings of the
+WHATWG Encoding Standard both ways. Nothing in it
 allocates, nothing holds global state, and every call builds for a target with
 no operating system.
 
@@ -207,6 +208,36 @@ std.debug.assert(xenoglyph.bidi.mirror('(').? == ')');
 ```
 <!-- END GENERATED -->
 
+Legacy encodings, to UTF-8 and back, whole or streaming:
+
+<!-- BEGIN GENERATED zig build docs -- encoding -->
+```zig
+const xenoglyph = @import("xenoglyph");
+
+// A label, as a Content-Type or a <meta> gives it, names an encoding.
+const sjis = xenoglyph.encoding.forLabel(" Shift_JIS ").?;
+// Shift_JIS bytes for "日本" decoded to UTF-8; a BOM would have chosen
+// UTF-8 or UTF-16 instead, and `decode` returns what it used.
+var text: [64]u8 = undefined;
+var w: std.Io.Writer = .fixed(&text);
+std.debug.assert(try xenoglyph.encoding.decode(sjis, "\x93\xfa\x96\x7b", &w, .{}) == .shift_jis);
+std.debug.assert(std.mem.eql(u8, w.buffered(), "\u{65e5}\u{672c}"));
+// Encoding back: a code point windows-1252 lacks is written as an HTML
+// reference, as a form submission does; `.fatal` stops at it instead.
+var bytes: [64]u8 = undefined;
+var b: std.Io.Writer = .fixed(&bytes);
+try xenoglyph.encoding.encode(.windows_1252, "caf\u{e9} \u{65e5}", &b, .{});
+std.debug.assert(std.mem.eql(u8, b.buffered(), "caf\xe9 &#26085;"));
+// A stream decodes in pieces of any size: a character split between
+// two pieces is held until the second.
+var decoder: xenoglyph.encoding.Decoder = .init(.gb18030, .{});
+w = .fixed(&text);
+try decoder.decode("\x81\x30", false, &w);
+try decoder.decode("\x81\x30", true, &w);
+std.debug.assert(std.mem.eql(u8, w.buffered(), "\u{80}"));
+```
+<!-- END GENERATED -->
+
 ## Design
 
 ### Segmentation
@@ -314,6 +345,37 @@ followed from one level run to the next without being built, and no rule is
 quadratic in the paragraph. The same rules run on a list of classes
 (`resolveClasses`, `reorderClasses`), which is how BidiTest.txt states its
 cases.
+
+### Encodings
+
+`encoding` is the WHATWG Encoding Standard: the encodings a browser reads and
+writes, with the standard's names, labels and algorithms, so text decodes as a
+browser decodes it and a form encodes as a browser encodes it. All 28
+single-byte encodings, Shift_JIS, EUC-JP, ISO-2022-JP, GBK, gb18030, Big5,
+EUC-KR, UTF-8, UTF-16LE and UTF-16BE, replacement and x-user-defined decode to
+UTF-8 and encode from it. IBM code page 437, which the standard leaves out, is
+there too, for the file names of zip archives that do not set their UTF-8 flag
+(APPNOTE 6.3.10, appendix D); it has no label and is named by its value.
+
+`decode` and `encode` take a whole input; a `Decoder` and an `Encoder` take it
+in pieces of any size, holding the standard's state between them (a split
+sequence, ISO-2022-JP's mode, a UTF-16 surrogate), and give the same output as
+one piece. A decoder in `.replacement` mode writes U+FFFD for each error, as
+the standard's decoders do, and in `.fatal` mode stops at the first and says
+how many bytes it read; BOM handling is the standard's three ways (sniff, UTF-8
+only, none), and `decode` returns the encoding a BOM chose. An encoder in
+`.html` mode writes a code point its encoding lacks as `&#N;`, as a form
+submission does, and in `.fatal` mode stops at it and names it. Output goes to
+a `std.Io.Writer` the caller gives; nothing is allocated. ASCII runs are
+copied sixteen bytes at a time.
+
+The tables are the standard's index files, generated as the Unicode ones are:
+each multi-byte index is an array by pointer for decoding and a trie from code
+point to pointer for encoding, with the standard's choices among duplicate
+pointers made by the generator (the first pointer; for Shift_JIS the first
+outside NEC's selection of IBM extensions, kept as a 373-entry list beside the
+jis0208 trie; for Big5 the last pointer for six code points). EUC-JP and
+ISO-2022-JP share jis0208's tables.
 
 ### Normalization
 
@@ -437,6 +499,8 @@ The UCD files are in the repository and outside what the package ships.
 | Word_Break | 13,520 |
 | East_Asian_Width | 5,248 |
 | Emoji properties | 3,944 |
+| Encoding Standard: single-byte tables and the multi-byte indexes by pointer (decoding) | 197,508 |
+| Encoding Standard: code point to pointer tries and lists (encoding) | 237,620 |
 
 A program links only the tables it reads: segmenting and measuring graphemes
 costs the first, 34 KB.
@@ -481,6 +545,10 @@ it covers. Every iterator's `offset()` is where its next segment starts.
 | `Line.runs`, `Line.visual()` | The line's runs, left to right; its code points' offsets in display order |
 | `bidi.mirror(cp)`, `bidi.pairedBracket(cp)` | Bidi_Mirroring_Glyph; Bidi_Paired_Bracket and its type |
 | `bidi.resolveClasses`, `bidi.reorderClasses` | The same algorithm on classes alone |
+| `encoding.forLabel(label)`, `encoding.name(e)` | The encoding a label names; its name in the standard |
+| `encoding.decode(e, bytes, writer, options)`, `encoding.Decoder` | Bytes in an encoding to UTF-8, whole or in pieces; replacement or fatal errors, BOM sniffing |
+| `encoding.encode(e, text, writer, options)`, `encoding.Encoder` | UTF-8 to an encoding, whole or in pieces; HTML references or fatal errors for what it lacks |
+| `encoding.outputEncoding(e)`, `encoding.asciiCompatible(e)` | The encoding a form or URL is encoded in; whether ASCII is itself in it |
 | `utf8.decode`, `utf8.Iterator` | Code points of any bytes, ill-formed subparts as U+FFFD |
 | `utf8.encode(iterator, writer)` | Writes the code points an iterator gives as UTF-8 |
 
@@ -521,6 +589,9 @@ them all for wasm32-freestanding.
   table entry in every build mode.
 - The [Unicode Character Database](https://www.unicode.org/ucd/) 18.0.0, whose
   data are under the Unicode License v3.
+- The [WHATWG Encoding Standard](https://encoding.spec.whatwg.org/)'s
+  `encodings.json` and index files, under the BSD 3-Clause licence, and
+  Unicode's CP437.TXT mapping.
 - [bay](https://github.com/pedronaugusto/bay) runs xenoglyph's development.
   [preflight](https://github.com/pedronaugusto/preflight) (the source checks,
   the tests and CI) and [shakedown](https://github.com/pedronaugusto/shakedown)
@@ -553,6 +624,16 @@ point has either. Arbitrary text dense in the classes the rules treat
 specially (isolates, embeddings, brackets, numbers, separators, ill-formed
 bytes) resolves with every byte at a level, a code point's bytes at one, runs
 covering each paragraph, and each code point once in a line's visual order.
+
+Every encoding decodes encoding_rs's test files, which are generated from the
+standard's indexes, to exactly its expected text, and encodes its expected
+bytes, for Big5, EUC-KR, gb18030, ISO-2022-JP, EUC-JP (JIS X 0208 and 0212) and
+Shift_JIS. Every label in `encodings.json` names its encoding, in any case and
+with any whitespace around it, and CP437 takes all 256 bytes there and back.
+Generated input dense in the bytes the decoders treat specially (escapes, lead
+bytes, BOMs, surrogates, truncated sequences) decodes the same in random pieces
+as in one, to well-formed UTF-8, which encodes the same in pieces as in one and
+decodes back to itself wherever no reference or U+FFFD was needed.
 
 Every code point NormalizationTest.txt does not list is its own normal form in
 all four forms. NFKC_Casefold of every code point is DerivedNormalizationProps.txt's,
@@ -599,4 +680,5 @@ runs each row once with `--smoke`; CI times nothing.
 
 MIT. See [LICENSE](LICENSE). The Unicode data the tables are generated from are
 under the [Unicode License v3](src/UNICODE-LICENSE.txt), a copy of which is
-beside the tables and beside the data files in `ucd/`.
+beside the tables and beside the data files in `ucd/`. The Encoding Standard's
+indexes are under the [BSD 3-Clause licence](src/WHATWG-LICENSE.txt).

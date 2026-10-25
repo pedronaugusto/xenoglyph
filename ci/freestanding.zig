@@ -97,3 +97,14 @@ export fn xenoglyphBidi(text: [*]const u8, len: usize, levels: [*]xenoglyph.bidi
     while (it.next()) |_| n += 1;
     return n + @intFromBool(xenoglyph.bidi.mirror('(') != null) + @intFromBool(xenoglyph.bidi.pairedBracket('[') != null);
 }
+
+export fn xenoglyphEncoding(label: [*]const u8, label_len: usize, bytes: [*]const u8, len: usize, out: [*]u8, out_len: usize) isize {
+    const e = xenoglyph.encoding.forLabel(label[0..label_len]) orelse return -1;
+    var w: std.Io.Writer = .fixed(out[0..out_len]);
+    // Every decoder and encoder, by the encoding the label names.
+    const used = xenoglyph.encoding.decode(e, bytes[0..len], &w, .{}) catch return -2;
+    const text = w.buffered();
+    var back: std.Io.Writer = .fixed(out[text.len..out_len]);
+    xenoglyph.encoding.encode(xenoglyph.encoding.outputEncoding(used), text, &back, .{}) catch return -3;
+    return @intCast(text.len + back.buffered().len);
+}

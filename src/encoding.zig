@@ -528,7 +528,7 @@ pub const Decoder = struct {
                     1166 => return .{ .two = .{ 0xea, 0x30c } },
                     else => {},
                 }
-                if (pointer < tables.big5.len and tables.big5[pointer] != 0) return .{ .one = tables.big5[pointer] };
+                if (pointer < tables.big5.len and tables.big5[pointer] != 0) return .{ .one = big5CodePoint(pointer) };
             }
             if (b < 0x80) d.prepend(&.{b});
             return .failed;
@@ -745,6 +745,12 @@ inline fn singleByteStep(comptime e: Encoding, b: u8) Step {
 }
 
 /// index gb18030 ranges code point.
+/// index Big5 code point for a pointer it maps.
+fn big5CodePoint(pointer: usize) u21 {
+    const plane: u21 = @intCast(tables.big5_plane_2[pointer / 64] >> @intCast(pointer % 64) & 1);
+    return plane << 17 | tables.big5[pointer];
+}
+
 fn rangesCodePoint(pointer: u32) ?u21 {
     if ((pointer > 39419 and pointer < 189000) or pointer > 1237575) return null;
     if (pointer == 7457) return 0xe7c7;
@@ -1081,7 +1087,8 @@ fn shiftJisBytes(cp: u21) Bytes {
     if (cp == 0x203e) return .of(1, .{0x7e});
     if (cp >= 0xff61 and cp <= 0xff9f) return .of(1, .{@intCast(cp - 0xff61 + 0xa1)});
     const c = if (cp == 0x2212) 0xff0d else cp;
-    const pointer = tables.shift_jis_encode.get(c);
+    const first = tables.jis0208_encode.get(c);
+    const pointer = if (first > 8272 and first <= 8836) shiftJisAlternate(@intCast(c)) else first;
     if (pointer == 0) return .{ .unmappable = true };
     const p = pointer - 1;
     const lead = p / 188;
@@ -1089,6 +1096,19 @@ fn shiftJisBytes(cp: u21) Bytes {
     const trail = p % 188;
     const offset: u16 = if (trail < 0x3f) 0x40 else 0x41;
     return .of(2, .{ @intCast(lead + lead_offset), @intCast(trail + offset) });
+}
+
+/// index Shift_JIS pointer, plus one, for a code point whose first jis0208
+/// pointer is one it excludes.
+fn shiftJisAlternate(cp: u16) u16 {
+    const list = &tables.shift_jis_alternates;
+    var low: usize = 0;
+    var high: usize = list.len;
+    while (low < high) {
+        const mid = (low + high) / 2;
+        if (list[mid][0] < cp) low = mid + 1 else high = mid;
+    }
+    return list[low][1];
 }
 
 fn eucKrBytes(cp: u21) Bytes {

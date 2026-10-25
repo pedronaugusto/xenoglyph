@@ -22,6 +22,7 @@ pub fn main() !void {
     stream();
     lines();
     bidirectional();
+    try encodings();
     try transform();
 }
 
@@ -155,4 +156,30 @@ fn bidirectional() void {
     std.debug.assert(visual.next().?.eql(.fromRaw(11)));
     std.debug.assert(xenoglyph.bidi.mirror('(').? == ')');
     // --- README:bidi ---
+}
+
+fn encodings() !void {
+    // --- README:encoding ---
+    // A label, as a Content-Type or a <meta> gives it, names an encoding.
+    const sjis = xenoglyph.encoding.forLabel(" Shift_JIS ").?;
+    // Shift_JIS bytes for "日本" decoded to UTF-8; a BOM would have chosen
+    // UTF-8 or UTF-16 instead, and `decode` returns what it used.
+    var text: [64]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&text);
+    std.debug.assert(try xenoglyph.encoding.decode(sjis, "\x93\xfa\x96\x7b", &w, .{}) == .shift_jis);
+    std.debug.assert(std.mem.eql(u8, w.buffered(), "\u{65e5}\u{672c}"));
+    // Encoding back: a code point windows-1252 lacks is written as an HTML
+    // reference, as a form submission does; `.fatal` stops at it instead.
+    var bytes: [64]u8 = undefined;
+    var b: std.Io.Writer = .fixed(&bytes);
+    try xenoglyph.encoding.encode(.windows_1252, "caf\u{e9} \u{65e5}", &b, .{});
+    std.debug.assert(std.mem.eql(u8, b.buffered(), "caf\xe9 &#26085;"));
+    // A stream decodes in pieces of any size: a character split between
+    // two pieces is held until the second.
+    var decoder: xenoglyph.encoding.Decoder = .init(.gb18030, .{});
+    w = .fixed(&text);
+    try decoder.decode("\x81\x30", false, &w);
+    try decoder.decode("\x81\x30", true, &w);
+    std.debug.assert(std.mem.eql(u8, w.buffered(), "\u{80}"));
+    // --- README:encoding ---
 }
