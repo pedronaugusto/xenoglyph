@@ -433,7 +433,8 @@ and punctuation aside to the quaternary level; CLDR's variable top is the end
 of the punctuation), `case_first` (uppercase or lowercase first at the
 tertiary level), `case_level` (a level of case alone before the tertiary) and
 `numeric` (a run of decimal digits weighs as its number, leading zeros aside,
-in any script).
+in any script, after everything below the digits and before what only looks
+like one, U+2070 SUPERSCRIPT ZERO, as ICU orders them).
 
 ### Normalization
 
@@ -697,7 +698,13 @@ text dense in contractions, accents, digits, punctuation, ignorables and
 implicit weights, sort keys order as `compare` does under every combination of
 options, a level decides only where those before it were equal, canonically
 equivalent texts compare equal at every strength, and under `numeric` runs of
-digits order as their numbers.
+digits order as their numbers. Against ICU4C 78's root collator (normalization
+on), 3,000 generated strings sort the same under all 120 combinations of
+`strength`, `alternate`, `case_first`, `case_level` and `numeric`, checked by
+the digests in `ucd/uca/icu4c/digests.txt`, which a harness outside the
+repository writes. Its alphabet leaves out Han past the URO: UTS #35 lets the
+root order Han by radical-stroke, as ICU does, or by UCA's implicit weights, as
+allkeys_CLDR.txt and xenoglyph do.
 
 Every encoding decodes encoding_rs's test files, which are generated from the
 standard's indexes, to exactly its expected text, and encodes its expected

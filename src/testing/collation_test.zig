@@ -67,6 +67,114 @@ test "CollationTest_CLDR_SHIFTED.txt: every line sorts after the one before" {
     try conformance(ucd.collation_test_shifted, .{ .strength = .quaternary, .alternate = .shifted });
 }
 
+/// The interop strings: `count` of them, each of 0 to 10 code points of
+/// `alphabet`, drawn by splitmix64 from `seed`, as ICU4C's harness draws them.
+fn interopStrings(gpa: std.mem.Allocator, seed: u64, count: usize, alphabet: []const u21) ![][]const u8 {
+    var state = seed;
+    const strings = try gpa.alloc([]const u8, count);
+    for (strings) |*s| {
+        var text: std.ArrayList(u8) = .empty;
+        for (0..splitmix(&state) % 11) |_| {
+            var b: [4]u8 = undefined;
+            try text.appendSlice(gpa, b[0..try std.unicode.utf8Encode(alphabet[splitmix(&state) % alphabet.len], &b)]);
+        }
+        s.* = try text.toOwnedSlice(gpa);
+    }
+    return strings;
+}
+
+fn splitmix(state: *u64) u64 {
+    state.* +%= 0x9e3779b97f4a7c15;
+    var z = state.*;
+    z = (z ^ (z >> 30)) *% 0xbf58476d1ce4e5b9;
+    z = (z ^ (z >> 27)) *% 0x94d049bb133111eb;
+    return z ^ (z >> 31);
+}
+
+/// The options an interop line names: strength, alternate, case first,
+/// case level, numeric.
+fn interopOptions(fields: *std.mem.TokenIterator(u8, .scalar)) !collation.Options {
+    return .{
+        .strength = std.meta.stringToEnum(collation.Strength, fields.next().?) orelse return error.BadLine,
+        .alternate = if (std.mem.eql(u8, fields.next().?, "shifted")) .shifted else .non_ignorable,
+        .case_first = std.meta.stringToEnum(@FieldType(collation.Options, "case_first"), fields.next().?) orelse return error.BadLine,
+        .case_level = std.mem.eql(u8, fields.next().?, "case-level"),
+        .numeric = std.mem.eql(u8, fields.next().?, "numeric"),
+    };
+}
+
+/// The SHA-256 of the strings' order under `options`, as the harness takes
+/// it: each index, each run of equal strings ascending and followed by
+/// 0xffffffff, little-endian u32s.
+fn orderDigest(strings: []const []const u8, order: []u32, options: collation.Options) [32]u8 {
+    for (order, 0..) |*o, i| o.* = @intCast(i);
+    const By = struct {
+        strings: []const []const u8,
+        options: collation.Options,
+        fn less(by: @This(), a: u32, b: u32) bool {
+            return switch (collation.compare(by.strings[a], by.strings[b], by.options)) {
+                .lt => true,
+                .gt => false,
+                .eq => a < b,
+            };
+        }
+    };
+    std.mem.sort(u32, order, By{ .strings = strings, .options = options }, By.less);
+    var hash: std.crypto.hash.sha2.Sha256 = .init(.{});
+    for (order, 0..) |o, i| {
+        hash.update(&std.mem.toBytes(std.mem.nativeToLittle(u32, o)));
+        if (i + 1 == order.len or collation.compare(strings[o], strings[order[i + 1]], options) != .eq)
+            hash.update(&std.mem.toBytes(std.mem.nativeToLittle(u32, 0xffffffff)));
+    }
+    return hash.finalResult();
+}
+
+test "every option set orders the interop strings as ICU4C's root collator does" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+    var lines = std.mem.tokenizeScalar(u8, ucd.collation_icu4c_digests, '\n');
+    var seed: u64 = 0;
+    var count: usize = 0;
+    var alphabet: std.ArrayList(u21) = .empty;
+    var strings: [][]const u8 = &.{};
+    var order: []u32 = &.{};
+    var checked: usize = 0;
+    var differ: usize = 0;
+    while (lines.next()) |line| {
+        if (line[0] == '#') continue;
+        var fields = std.mem.tokenizeScalar(u8, line, ' ');
+        const first = fields.next().?;
+        if (std.mem.eql(u8, first, "seed")) {
+            seed = try std.fmt.parseInt(u64, fields.next().?, 10);
+        } else if (std.mem.eql(u8, first, "count")) {
+            count = try std.fmt.parseInt(usize, fields.next().?, 10);
+        } else if (std.mem.eql(u8, first, "alphabet")) {
+            while (fields.next()) |f| try alphabet.append(gpa, try std.fmt.parseInt(u21, f, 16));
+        } else if (std.mem.eql(u8, first, "strings")) {
+            strings = try interopStrings(gpa, seed, count, alphabet.items);
+            order = try gpa.alloc(u32, count);
+            var hash: std.crypto.hash.sha2.Sha256 = .init(.{});
+            for (strings) |s| {
+                hash.update(s);
+                hash.update("\xff");
+            }
+            try std.testing.expectEqualStrings(fields.next().?, &std.fmt.bytesToHex(hash.finalResult(), .lower));
+        } else {
+            fields = std.mem.tokenizeScalar(u8, line, ' ');
+            const options = try interopOptions(&fields);
+            const digest = std.fmt.bytesToHex(orderDigest(strings, order, options), .lower);
+            if (!std.mem.eql(u8, fields.next().?, &digest)) {
+                std.debug.print("differs from ICU4C: {s}\n", .{line[0 .. line.len - 65]});
+                differ += 1;
+            }
+            checked += 1;
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 120), checked);
+    try std.testing.expectEqual(@as(usize, 0), differ);
+}
+
 const shakedown = @import("shakedown");
 const normalize = @import("../normalize.zig");
 const gen = shakedown.gen;

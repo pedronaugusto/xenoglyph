@@ -36,6 +36,8 @@ pub const bidi_mirroring = @embedFile("BidiMirroring.txt");
 /// CLDR 49's root collation conformance tests (UCA 18.0.0), without their comments.
 pub const collation_test_non_ignorable = @embedFile("uca/CollationTest_CLDR_NON_IGNORABLE_SHORT.txt");
 pub const collation_test_shifted = @embedFile("uca/CollationTest_CLDR_SHIFTED_SHORT.txt");
+/// The digests of ICU4C's root collator sorting the interop strings under every option set (the header of digests.txt says how they were written).
+pub const collation_icu4c_digests = @embedFile("uca/icu4c/digests.txt");
 
 /// The digests of encoding_rs 0.8.42 decoding and encoding the interop inputs (the header of digests.txt says how they were written).
 pub const encoding_rs_digests = @embedFile("whatwg/encoding_rs/digests.txt");

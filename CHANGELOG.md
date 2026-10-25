@@ -12,7 +12,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- `collation`: the Unicode Collation Algorithm (UTS #10) with CLDR's root collation (CLDR 49, UCA 18.0.0). `collation.compare` orders two texts and `collation.sortKey` writes bytes that order as their texts do; neither allocates. `collation.Options`: `strength` (primary to identical), `alternate` (non-ignorable or shifted, CLDR's variable top), `case_first`, `case_level`, `numeric`; `collation.Strength`. Input in any normalization form; contractions contiguous and discontiguous; implicit weights for Han, Tangut, Nushu, Khitan, Jurchen, Seal and unassigned code points. CLDR's CollationTest_CLDR_NON_IGNORABLE.txt and _SHIFTED.txt pass in full.
+- `collation`: the Unicode Collation Algorithm (UTS #10) with CLDR's root collation (CLDR 49, UCA 18.0.0). `collation.compare` orders two texts and `collation.sortKey` writes bytes that order as their texts do; neither allocates. `collation.Options`: `strength` (primary to identical), `alternate` (non-ignorable or shifted, CLDR's variable top), `case_first`, `case_level`, `numeric`; `collation.Strength`. Input in any normalization form; contractions contiguous and discontiguous; implicit weights for Han, Tangut, Nushu, Khitan, Jurchen, Seal and unassigned code points. CLDR's CollationTest_CLDR_NON_IGNORABLE.txt and _SHIFTED.txt pass in full, and every combination of the options orders generated text as ICU4C 78's root collator does.
 
 ### Changed
 

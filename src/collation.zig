@@ -76,6 +76,14 @@ const unassigned_base = 0xfbc0;
 /// plus its value.
 const zero_primary = Element.unpack(tables.collation.get('0') & ~@as(u32, 2)).primary;
 
+/// The high half of a number's primaries: the primary just below the digit
+/// zero's, so a number sorts after every character below the digits and
+/// before every one with a digit's primary that is no decimal digit (U+2070
+/// SUPERSCRIPT ZERO, U+24EA CIRCLED DIGIT ZERO), as ICU's numeric
+/// primaries do. No character has a low half, so a number's never meets
+/// one's.
+const number_primary = zero_primary - (1 << 16);
+
 /// The non-starters after a contraction's starter that discontiguous
 /// matching looks through, as many as normalization orders at once.
 const window = 32;
@@ -257,7 +265,7 @@ const Elements = struct {
     }
 
     fn nextDigits(e: *Elements) Element {
-        var out: Element = .{ .primary = zero_primary, .secondary = 0x20, .tertiary = 0x02, .variable = false };
+        var out: Element = .{ .primary = number_primary, .secondary = 0x20, .tertiary = 0x02, .variable = false };
         if (!e.number_counted) {
             e.number_counted = true;
             out.primary |= @intCast(e.number_left);
@@ -401,9 +409,9 @@ pub fn sortKey(text: []const u8, w: *Writer, options: Options) Writer.Error!void
                 try w.writeInt(u16, @intCast(weight), .big);
             } else {
                 // A primary in the low half too only within a number, whose
-                // high half is the digit zero's: there both halves go.
+                // high half is `number_primary`'s: there both halves go.
                 try w.writeInt(u16, @intCast(weight >> 16), .big);
-                if (options.numeric and weight >> 16 == zero_primary >> 16) try w.writeInt(u16, @truncate(weight), .big);
+                if (options.numeric and weight >> 16 == number_primary >> 16) try w.writeInt(u16, @truncate(weight), .big);
             }
         }
     };
