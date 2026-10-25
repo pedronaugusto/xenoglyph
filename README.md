@@ -2,7 +2,7 @@
 
 xenoglyph handles Unicode text in Zig: grapheme clusters, forward and
 backward, words and sentences (UAX #29), line break opportunities (UAX #14),
-normalization (UAX #15) and NFKC_Casefold, case mapping, folding and caseless
+normalization (UAX #15), NFKC_Casefold and NFKC_Simple_Casefold, case mapping, folding and caseless
 matching, how many terminal cells text takes, internationalized domain names
 (UTS #46) and Punycode, bidirectional text (UAX #9) for layout, the
 character properties those rest on, from the
@@ -533,6 +533,19 @@ changes (Changes_When_NFKC_Casefolded), since the transform never writes one:
 the suite checks that what the mappings give is unchanged by them, and so is
 every composite canonical composition makes of unchanged code points.
 
+NFKC_Simple_Casefold (`.nfkc_simple_casefold`) is toNFKC_Simple_Casefold, the
+same with simple case folding (Unicode 15.1): no folding changes a string's
+length, so `ß` stays and `ẞ` becomes it. Its mappings share NFKC_Casefold's list
+and pool, with an index of their own. NFKC_Simple_Casefold has no Changes_When
+property; the generator derives one from the code points it lists, and the
+quick check answers `no` for those but U+0345: the Greek capitals with
+prosgegrammeni map to small letters with ypogegrammeni, whose decomposition
+holds U+0345, which the mapping itself changes to ι. So the mapping is applied
+to the text's code points as they are (`ᾀ` stays; U+03B1 U+0313 U+0345 becomes
+`ἀι`), as the UCD's definition says, and the result is put in NFC, also after a
+character that maps to itself while its decomposition holds one that changes
+(U+0130, `ᾀ`).
+
 ### Case
 
 Lowercase, uppercase, titlecase and case folding follow chapter 3.13 of the
@@ -621,7 +634,7 @@ The UCD files are in the repository and outside what the package ships.
 | Script_Extensions | 4,016 |
 | Derived core properties | 20,404 |
 | Line breaking records (resolved class and the flags the rules read) | 36,348 |
-| Normalization: combining classes, decompositions, NFKC_Casefold and their code points, compositions, quick checks | 144,448 |
+| Normalization: combining classes, decompositions, NFKC_Casefold, NFKC_Simple_Casefold and their code points, compositions, quick checks | 154,768 |
 | Case: simple mappings and the flags the contexts read, full mappings | 19,216 |
 | Line_Break | 19,136 |
 | Sentence_Break | 16,736 |
@@ -654,7 +667,7 @@ it covers. Every iterator's `offset()` is where its next segment starts.
 | `words(text)`, `word.isWordLike(segment)` | Words and the runs between them; whether a segment is a word |
 | `sentences(text)` | Sentences |
 | `lines(text)`, `line.Iterator.nextBreak()` | Line break opportunities, each with whether the break is mandatory |
-| `normalize.write(form, text, writer)`, `normalize.Iterator(form)` | NFD, NFC, NFKD, NFKC or NFKC_Casefold of a text |
+| `normalize.write(form, text, writer)`, `normalize.Iterator(form)` | NFD, NFC, NFKD, NFKC, NFKC_Casefold or NFKC_Simple_Casefold of a text |
 | `normalize.isNormalized`, `normalize.quickCheck`, `normalize.equal` | Whether a text is in a form; UAX #15's quick check; whether two texts have the same normal form |
 | `normalize.combiningClass`, `normalize.decompose`, `normalize.compose` | Canonical_Combining_Class, a code point's full decomposition, a primary composite |
 | `case.write(mapping, text, writer, options)`, `case.Iterator(mapping)` | Lowercase, uppercase, titlecase or full case folding of a text |
@@ -709,7 +722,7 @@ property's default, as an unassigned code point does.
   segmentation rules derive from.
 - No collation tailorings (CLDR's per-language orders) and no backwards
   secondary (French accents, a tailoring's setting), no locale data beyond the
-  Lithuanian and Turkic casings, no NFKC_Simple_Casefold, and no identifier
+  Lithuanian and Turkic casings, and no identifier
   syntax (UAX #31): `security` checks an identifier's characters and scripts,
   not its form.
 - No compatibility caseless match (D146): identifier caseless match covers
@@ -824,7 +837,17 @@ through the decoder's buffer and straight into the writer's.
 Every code point NormalizationTest.txt does not list is its own normal form in
 all four forms. NFKC_Casefold of every code point is DerivedNormalizationProps.txt's,
 through the iterator, `write`, `isNormalized` and the quick check, and
-Changes_When_NFKC_Casefolded is what the mapping changes. The simple and full case mappings and folding are checked against
+Changes_When_NFKC_Casefolded is what the mapping changes; so is NFKC_Simple_Casefold,
+and what either transform writes for a code point holds none its quick check
+refuses. Against ICU4C 78's nfkc_scf normalizer, checked by the digests in
+`ucd/icu4c/nfkc_scf_digests.txt` that a harness outside the repository writes:
+every code point Unicode 17 assigns but those whose decomposition holds one
+whose NFKC_SCF changed for 18.0, and 3,000 generated strings of case pairs,
+Greek and its marks, compatibility characters and default ignorables. The
+strings leave out U+0130 and the Greek letters with ypogegrammeni: ICU leaves
+those undecomposed, so a mark after one is neither ordered nor composed
+(nfkc_scf of U+1F80 U+0300 is itself; NFC, which the transform ends with, gives
+U+1F82), where xenoglyph's output is in NFC. The simple and full case mappings and folding are checked against
 UnicodeData.txt, SpecialCasing.txt and CaseFolding.txt for every code point, every
 conditional mapping of SpecialCasing.txt in its context, and the five
 Changes_When properties of DerivedCoreProperties.txt, which the UCD derives by

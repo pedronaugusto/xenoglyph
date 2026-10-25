@@ -32,17 +32,30 @@ pub const Form = enum {
     /// removal of Default_Ignorable_Code_Point, repeated until stable), then
     /// NFC. For identifiers and loose matching.
     nfkc_casefold,
+    /// toNFKC_Simple_Casefold: as `nfkc_casefold`, with simple case folding
+    /// in place of full (NFKC_Simple_Casefold, Unicode 15.1): no mapping
+    /// changes a string's length by folding, so `ß` stays and `ẞ` becomes it.
+    nfkc_simple_casefold,
 
     fn decomposition(f: Form) Decomposition {
         return switch (f) {
             .nfd, .nfc => .canonical,
             .nfkd, .nfkc => .compatibility,
             .nfkc_casefold => .casefold,
+            .nfkc_simple_casefold => .simple_casefold,
         };
     }
 
     fn composes(f: Form) bool {
-        return f == .nfc or f == .nfkc or f == .nfkc_casefold;
+        return switch (f) {
+            .nfd, .nfkd => false,
+            .nfc, .nfkc, .nfkc_casefold, .nfkc_simple_casefold => true,
+        };
+    }
+
+    /// Whether the form folds case: ASCII goes to lowercase.
+    fn folds(f: Form) bool {
+        return f == .nfkc_casefold or f == .nfkc_simple_casefold;
     }
 };
 
@@ -52,6 +65,8 @@ const Decomposition = enum {
     compatibility,
     /// NFKC_Casefold's mapping, fully decomposed canonically.
     casefold,
+    /// NFKC_Simple_Casefold's mapping, fully decomposed canonically.
+    simple_casefold,
 };
 
 /// Canonical_Combining_Class.
@@ -92,8 +107,8 @@ const Expansion = struct {
             return e;
         }
         if (cp <= 0x10ffff) {
-            if (decomposition == .casefold) {
-                const folded = tables.casefold.get(cp);
+            if (decomposition == .casefold or decomposition == .simple_casefold) {
+                const folded = if (decomposition == .casefold) tables.casefold.get(cp) else tables.simple_casefold.get(cp);
                 if (folded != 0) {
                     const m: classes.Mapping = @bitCast(tables.casefolds[folded]);
                     return .{ .start = m.start, .len = m.len, .in_pool = true };
@@ -160,7 +175,7 @@ fn Decomposer(comptime decomposition: Decomposition) type {
             const lead = d.bytes[at];
             if (lead < 0x80) {
                 d.expansion = .{ .len = 1 };
-                d.expansion.local[0] = if (decomposition == .casefold) std.ascii.toLower(lead) else lead;
+                d.expansion.local[0] = if (decomposition == .casefold or decomposition == .simple_casefold) std.ascii.toLower(lead) else lead;
                 d.byte = at;
                 d.next_byte = at + 1;
             } else {
@@ -226,7 +241,7 @@ pub fn write(comptime form: Form, text: []const u8, w: *std.Io.Writer) std.Io.Wr
 /// ASCII text in `form`: itself, or lowercase for NFKC_Casefold, which
 /// changes no other ASCII character.
 fn writeAscii(comptime form: Form, ascii: []const u8, w: *std.Io.Writer) std.Io.Writer.Error!void {
-    if (form != .nfkc_casefold) return w.writeAll(ascii);
+    if (!form.folds()) return w.writeAll(ascii);
     var buffer: [256]u8 = undefined;
     var rest = ascii;
     while (rest.len > 0) {
@@ -243,14 +258,17 @@ pub const QuickCheck = enum { yes, no, maybe };
 /// UTF-8 is `no`: normalizing writes U+FFFD in its place. For
 /// `.nfkc_casefold`, a code point that NFKC_Casefold changes
 /// (Changes_When_NFKC_Casefolded) is `no`, since toNFKC_Casefold never
-/// writes one, and the rest is NFC's quick check.
+/// writes one, and the rest is NFC's quick check; likewise for
+/// `.nfkc_simple_casefold` with NFKC_Simple_Casefold, but for U+0345, which
+/// it changes and also writes (inside the small Greek letters with
+/// ypogegrammeni), so that only normalizing tells.
 pub fn quickCheck(comptime form: Form, text: []const u8) QuickCheck {
     var result: QuickCheck = .yes;
     var last: u8 = 0;
     var at: usize = 0;
     while (at < text.len) {
         if (text[at] < 0x80) {
-            if (form == .nfkc_casefold and std.ascii.isUpper(text[at])) return .no;
+            if (form.folds() and std.ascii.isUpper(text[at])) return .no;
             last = 0;
             at += 1;
             continue;
@@ -271,6 +289,9 @@ pub fn quickCheck(comptime form: Form, text: []const u8) QuickCheck {
                 result = .maybe;
             },
             .nfkc_casefold => if (q.nfkc_casefold_changes) return .no else if (q.nfc_maybe) {
+                result = .maybe;
+            },
+            .nfkc_simple_casefold => if (q.nfkc_simple_casefold_changes) return .no else if (q.nfc_maybe) {
                 result = .maybe;
             },
         }
@@ -294,8 +315,9 @@ pub fn isNormalized(comptime form: Form, text: []const u8) bool {
 
 /// Whether `a` and `b` have the same normal form: canonically equivalent
 /// for `.nfd` and `.nfc`, compatibility equivalent for `.nfkd` and `.nfkc`,
-/// and for `.nfkc_casefold` equal under toNFKC_Casefold (which, unlike
-/// `case.equal(.identifier, ...)`, does not decompose first).
+/// and for `.nfkc_casefold` and `.nfkc_simple_casefold` equal under
+/// toNFKC_Casefold or toNFKC_Simple_Casefold (which, unlike
+/// `case.equal(.identifier, ...)`, do not decompose first).
 pub fn equal(comptime form: Form, a: []const u8, b: []const u8) bool {
     var x: Iterator(form) = .init(a);
     var y: Iterator(form) = .init(b);
@@ -321,6 +343,12 @@ test "the forms" {
     // NFKC_Casefold: compatibility, case and default ignorables, then NFC.
     try expectForm(.nfkc_casefold, "\u{2160}\u{200b}A\u{30a}\u{1e9e}", &.{ 'i', 0xe5, 's', 's' });
     try expectForm(.nfkc_casefold, "\u{ad}", &.{});
+    try expectForm(.nfkc_simple_casefold, "\u{2160}\u{200b}A\u{30a}\u{1e9e}\u{df}", &.{ 'i', 0xe5, 0xdf, 0xdf });
+    // NFC after the mapping, also where a mark follows a character that maps
+    // to itself but holds one that changes (ICU 78's nfkc_scf leaves these
+    // as they are, not in NFC).
+    try expectForm(.nfkc_simple_casefold, "\u{1f88}\u{300}", &.{0x1f82});
+    try expectForm(.nfkc_simple_casefold, "\u{130}\u{323}", &.{ 0x1eca, 0x307 });
     // Canonical order: dot below (220) before dot above (230).
     try expectForm(.nfd, "q\u{307}\u{323}", &.{ 'q', 0x323, 0x307 });
     try expectForm(.nfc, "\u{1e0b}\u{323}", &.{ 0x1e0d, 0x307 });

@@ -335,7 +335,10 @@ pub const QuickCheck = packed struct(u8) {
     /// Changes_When_NFKC_Casefolded: NFKC_Casefold maps the code point to
     /// something else.
     nfkc_casefold_changes: bool = false,
-    _: u1 = 0,
+    /// NFKC_Simple_Casefold maps the code point to something else, and no
+    /// mapping writes it (all but U+0345, which the Greek capitals with
+    /// prosgegrammeni map to letters holding): the quick check's no.
+    nfkc_simple_casefold_changes: bool = false,
 };
 
 /// A code point's simple case mappings as differences from it, and what the

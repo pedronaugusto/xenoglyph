@@ -385,7 +385,7 @@ fn normalForms(_: void, case: *shakedown.Case) anyerror!void {
     const bytes = if (gen.boolean(case.source)) try markText(case, 1200) else try text(case);
     case.note("text: {any}", .{bytes});
     const decoded: oracle.Decoded = try .init(case.gpa, bytes);
-    inline for (.{ .nfd, .nfc, .nfkd, .nfkc, .nfkc_casefold }) |form| {
+    inline for (.{ .nfd, .nfc, .nfkd, .nfkc, .nfkc_casefold, .nfkc_simple_casefold }) |form| {
         const want = try oracle.normalized(case.gpa, form, decoded);
         var it: xenoglyph.normalize.Iterator(form) = .init(bytes);
         for (want) |w| try std.testing.expectEqual(@as(?u21, w), it.next());

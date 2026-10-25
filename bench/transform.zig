@@ -59,6 +59,8 @@ const rows = [_]Row{
     .{ .name = "nfd of cjk", .unit = "64KiB", .run = Context.normal(.nfd, .cjk) },
     .{ .name = "nfkc_casefold of mixed", .unit = "64KiB", .run = Context.normal(.nfkc_casefold, .mixed) },
     .{ .name = "nfkc_casefold of latin", .unit = "64KiB", .run = Context.normal(.nfkc_casefold, .latin) },
+    .{ .name = "nfkc_simple_casefold of mixed", .unit = "64KiB", .run = Context.normal(.nfkc_simple_casefold, .mixed) },
+    .{ .name = "nfkc_simple_casefold of latin", .unit = "64KiB", .run = Context.normal(.nfkc_simple_casefold, .latin) },
     .{ .name = "lower ascii", .unit = "64KiB", .run = Context.mapped(.lower, .ascii) },
     .{ .name = "upper latin", .unit = "64KiB", .run = Context.mapped(.upper, .latin) },
     .{ .name = "fold mixed", .unit = "64KiB", .run = Context.mapped(.fold, .mixed) },

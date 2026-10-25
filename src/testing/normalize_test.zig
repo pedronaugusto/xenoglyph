@@ -86,8 +86,10 @@ test "every code point Part 1 does not list is its own normal form" {
     try std.testing.expect(unlisted > 1_000_000);
 }
 
-/// NFKC_Casefold and Changes_When_NFKC_Casefolded of every code point, as
-/// DerivedNormalizationProps.txt gives them.
+/// NFKC_Casefold or NFKC_Simple_Casefold of every code point, and whether it
+/// changes it, as DerivedNormalizationProps.txt gives them: for
+/// NFKC_Casefold the file's Changes_When_NFKC_Casefolded, for the simple one,
+/// which has no such property, where the file lists a mapping.
 const Casefold = struct {
     /// Each code point's mapping, as a start and length in `pool`; null
     /// where the file lists none and it is the code point itself.
@@ -95,7 +97,7 @@ const Casefold = struct {
     pool: std.ArrayList(u21),
     changes: []bool,
 
-    fn read(gpa: std.mem.Allocator) !Casefold {
+    fn read(gpa: std.mem.Allocator, property: []const u8) !Casefold {
         var c: Casefold = .{ .mapping = try gpa.alloc(?[2]u32, 0x110000), .pool = .empty, .changes = try gpa.alloc(bool, 0x110000) };
         @memset(c.mapping, null);
         @memset(c.changes, false);
@@ -109,9 +111,11 @@ const Casefold = struct {
             const dots = std.mem.find(u8, range, "..");
             const first = try std.fmt.parseInt(u21, if (dots) |d| range[0..d] else range, 16);
             const last = if (dots) |d| try std.fmt.parseInt(u21, range[d + 2 ..], 16) else first;
-            if (std.mem.eql(u8, name, "Changes_When_NFKC_Casefolded")) {
+            const simple = std.mem.eql(u8, property, "NFKC_SCF");
+            if (!simple and std.mem.eql(u8, name, "Changes_When_NFKC_Casefolded")) {
                 @memset(c.changes[first .. @as(usize, last) + 1], true);
-            } else if (std.mem.eql(u8, name, "NFKC_CF")) {
+            } else if (std.mem.eql(u8, name, property)) {
+                if (simple) @memset(c.changes[first .. @as(usize, last) + 1], true);
                 const start: u32 = @intCast(c.pool.items.len);
                 var codes = std.mem.tokenizeScalar(u8, std.mem.trim(u8, fields.next().?, " "), ' ');
                 while (codes.next()) |code| try c.pool.append(gpa, try std.fmt.parseInt(u21, code, 16));
@@ -131,10 +135,10 @@ const Casefold = struct {
     }
 };
 
-test "NFKC_Casefold of every code point is DerivedNormalizationProps.txt's" {
+fn everyCodePoint(comptime form: normalize.Form, property: []const u8, want_mapped: usize) !void {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
-    const c = try Casefold.read(arena.allocator());
+    const c = try Casefold.read(arena.allocator(), property);
     var mapped: usize = 0;
     for (0..0x110000) |i| {
         if (i >= 0xd800 and i <= 0xdfff) continue;
@@ -147,24 +151,45 @@ test "NFKC_Casefold of every code point is DerivedNormalizationProps.txt's" {
         var len: usize = 0;
         for (want) |m| len += try std.unicode.utf8Encode(m, want_bytes[len..]);
         // Through the iterator, `write`, `isNormalized` and the quick check.
-        try expectForm(.nfkc_casefold, s, want_bytes[0..len], i);
+        try expectForm(form, s, want_bytes[0..len], i);
         const changes = !std.mem.eql(u21, want, &.{cp});
         try std.testing.expectEqual(c.changes[i], changes);
-        try std.testing.expectEqual(changes, normalize.quickCheck(.nfkc_casefold, s) == .no);
+        // U+0345 is the one code point a mapping both changes and writes.
+        const written = form == .nfkc_simple_casefold and cp == 0x345;
+        try std.testing.expectEqual(changes and !written, normalize.quickCheck(form, s) == .no);
         mapped += @intFromBool(changes);
     }
-    try std.testing.expectEqual(10671, mapped);
+    try std.testing.expectEqual(want_mapped, mapped);
 }
 
-test "toNFKC_Casefold writes no code point NFKC_Casefold changes, so the quick check's no is sound" {
+test "NFKC_Casefold of every code point is DerivedNormalizationProps.txt's" {
+    try everyCodePoint(.nfkc_casefold, "NFKC_CF", 10671);
+}
+
+test "NFKC_Simple_Casefold of every code point is DerivedNormalizationProps.txt's" {
+    try everyCodePoint(.nfkc_simple_casefold, "NFKC_SCF", 10633);
+}
+
+fn quickCheckSound(comptime form: normalize.Form, property: []const u8) !void {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
-    const c = try Casefold.read(arena.allocator());
-    // What the mappings give, decomposed, is unchanged by them.
+    const c = try Casefold.read(arena.allocator(), property);
     for (0..0x110000) |i| {
         if (i >= 0xd800 and i <= 0xdfff) continue;
-        var buffer: [18]u21 = undefined;
-        for (normalize.decompose(@intCast(i), .nfkc_casefold, &buffer)) |part| try std.testing.expect(!c.changes[part]);
+        // NFKC_Casefold's mappings, decomposed, are unchanged by it. (Not
+        // so NFKC_Simple_Casefold's: U+0130 stands for itself as `I` and
+        // U+0307, which compose back.)
+        if (form == .nfkc_casefold) {
+            var buffer: [18]u21 = undefined;
+            for (normalize.decompose(@intCast(i), form, &buffer)) |part| try std.testing.expect(!c.changes[part]);
+        }
+        // What either writes for a code point holds none the quick check refuses.
+        var bytes: [4]u8 = undefined;
+        var it: normalize.Iterator(form) = .init(bytes[0..try std.unicode.utf8Encode(@intCast(i), &bytes)]);
+        while (it.next()) |out| {
+            var one: [4]u8 = undefined;
+            try std.testing.expect(normalize.quickCheck(form, one[0..try std.unicode.utf8Encode(out, &one)]) != .no);
+        }
     }
     // And so is every composite canonical composition makes of what is
     // unchanged: the Hangul syllables, and each primary composite of two
@@ -187,4 +212,72 @@ test "toNFKC_Casefold writes no code point NFKC_Casefold changes, so the quick c
         if (!c.changes[first] and !c.changes[second]) try std.testing.expect(!c.changes[composite]);
     }
     try std.testing.expectEqual(961, composites);
+}
+
+test "toNFKC_Casefold writes no code point NFKC_Casefold changes, so the quick check's no is sound" {
+    try quickCheckSound(.nfkc_casefold, "NFKC_CF");
+}
+
+test "toNFKC_Simple_Casefold writes no code point NFKC_Simple_Casefold changes, so the quick check's no is sound" {
+    try quickCheckSound(.nfkc_simple_casefold, "NFKC_SCF");
+}
+
+fn splitmix(state: *u64) u64 {
+    state.* +%= 0x9e3779b97f4a7c15;
+    var z = state.*;
+    z = (z ^ (z >> 30)) *% 0xbf58476d1ce4e5b9;
+    z = (z ^ (z >> 27)) *% 0x94d049bb133111eb;
+    return z ^ (z >> 31);
+}
+
+fn hashSimpleCasefold(hash: *std.crypto.hash.sha2.Sha256, text: []const u8) !void {
+    var out: [512]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&out);
+    try normalize.write(.nfkc_simple_casefold, text, &w);
+    hash.update(w.buffered());
+    hash.update("\xff");
+}
+
+test "toNFKC_Simple_Casefold of code points and strings is ICU4C's nfkc_scf normalizer's" {
+    var lines = std.mem.tokenizeScalar(u8, ucd.nfkc_scf_icu4c_digests, '\n');
+    var hash: std.crypto.hash.sha2.Sha256 = .init(.{});
+    var seed: u64 = 0;
+    var count: usize = 0;
+    var alphabet: std.ArrayList(u21) = .empty;
+    defer alphabet.deinit(std.testing.allocator);
+    var checked: usize = 0;
+    while (lines.next()) |line| {
+        if (line[0] == '#') continue;
+        var fields = std.mem.tokenizeScalar(u8, line, ' ');
+        const name = fields.next().?;
+        if (std.mem.eql(u8, name, "inputs")) {
+            while (fields.next()) |range| {
+                const dash = std.mem.findScalar(u8, range, '-');
+                const first = try std.fmt.parseInt(u21, range[0 .. dash orelse range.len], 16);
+                const last = if (dash) |d| try std.fmt.parseInt(u21, range[d + 1 ..], 16) else first;
+                for (first..@as(usize, last) + 1) |cp| {
+                    var bytes: [4]u8 = undefined;
+                    try hashSimpleCasefold(&hash, bytes[0..try std.unicode.utf8Encode(@intCast(cp), &bytes)]);
+                }
+            }
+        } else if (std.mem.eql(u8, name, "seed")) {
+            seed = try std.fmt.parseInt(u64, fields.next().?, 10);
+        } else if (std.mem.eql(u8, name, "count")) {
+            count = try std.fmt.parseInt(usize, fields.next().?, 10);
+        } else if (std.mem.eql(u8, name, "alphabet")) {
+            while (fields.next()) |f| try alphabet.append(std.testing.allocator, try std.fmt.parseInt(u21, f, 16));
+            var state = seed;
+            for (0..count) |_| {
+                var text: [32]u8 = undefined;
+                var len: usize = 0;
+                for (0..splitmix(&state) % 9) |_| len += try std.unicode.utf8Encode(alphabet.items[splitmix(&state) % alphabet.items.len], text[len..]);
+                try hashSimpleCasefold(&hash, text[0..len]);
+            }
+        } else {
+            try std.testing.expectEqualStrings(fields.next().?, &std.fmt.bytesToHex(hash.finalResult(), .lower));
+            hash = .init(.{});
+            checked += 1;
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 2), checked);
 }

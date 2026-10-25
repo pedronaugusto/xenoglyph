@@ -40,6 +40,8 @@ pub const collation_test_shifted = @embedFile("uca/CollationTest_CLDR_SHIFTED_SH
 pub const collation_icu4c_digests = @embedFile("uca/icu4c/digests.txt");
 /// The digests of ICU4C's spoof checker on the UTS #39 interop inputs (the header of digests.txt says how they were written).
 pub const security_icu4c_digests = @embedFile("security/icu4c/digests.txt");
+/// The digests of ICU4C's nfkc_scf normalizer on the NFKC_Simple_Casefold interop inputs (the header says how they were written).
+pub const nfkc_scf_icu4c_digests = @embedFile("icu4c/nfkc_scf_digests.txt");
 
 /// The digests of encoding_rs 0.8.42 decoding and encoding the interop inputs (the header of digests.txt says how they were written).
 pub const encoding_rs_digests = @embedFile("whatwg/encoding_rs/digests.txt");
