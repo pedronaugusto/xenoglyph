@@ -112,6 +112,7 @@ pub fn dev(b: *std.Build, tools: type) void {
                 .{ .name = "segment", .source = "bench/segment.zig" },
                 .{ .name = "width", .source = "bench/width.zig" },
                 .{ .name = "transform", .source = "bench/transform.zig" },
+                .{ .name = "bidi", .source = "bench/bidi.zig" },
             },
             .imports = benchImports,
             .target = target,

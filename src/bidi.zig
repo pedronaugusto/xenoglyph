@@ -55,15 +55,17 @@ pub const Options = struct {
 /// the memory; it means nothing after `resolve` returns.
 pub const Scratch = packed struct(u32) {
     class: BidiClass,
-    /// Skipped by every rule after X9: a byte inside a code point, or a
-    /// character X9 removes.
+    /// Skipped by every rule after X9: a character X9 removes, or a byte
+    /// inside a unit (with class BN), which the unit's first byte stands for.
     removed: bool,
     kind: Kind,
-    /// An isolate initiator's matching PDI, a matched PDI's initiator, an
-    /// opening bracket's closing one; `none` where there is none.
+    /// An isolate initiator's matching PDI, a matched PDI's initiator, a
+    /// paired opening bracket's closing one; for any other position X9
+    /// keeps, how far on the next such position is. `none` where there is
+    /// none.
     link: u24,
 
-    const Kind = enum(u2) { other, initiator, pdi };
+    const Kind = enum(u2) { other, initiator, pdi, paired };
     const none = std.math.maxInt(u24);
 };
 
@@ -102,13 +104,10 @@ pub const Paragraph = struct {
     pub fn resolve(text: []const u8, start: Bytes, options: Options, buffers: Buffers) Paragraph {
         const from = start.raw();
         aegis.assert.pre(from <= text.len, "a paragraph starts inside its text");
-        const end = paragraphEnd(text, from);
-        const n = end - from;
-        aegis.assert.pre(n <= max_paragraph, "a paragraph is at most max_paragraph bytes");
-        aegis.assert.pre(buffers.levels.len >= n and buffers.scratch.len >= n, "the buffers hold a level and a slot for each byte of the paragraph");
-        const source: Text = .{ .bytes = text[from..end] };
-        const level = resolveIn(source, buffers.levels[0..n], buffers.scratch[0..n], options);
-        return .{ .text = text, .span = .fromRaw(from, end), .level = level, .levels = buffers.levels[0..n] };
+        const room = @min(text.len - from, buffers.levels.len, buffers.scratch.len, max_paragraph);
+        const source: Text = .{ .bytes = text[from..] };
+        const resolved = resolveIn(source, buffers.levels[0..room], buffers.scratch[0..room], options, .paragraph);
+        return .{ .text = text, .span = .fromRaw(from, from + resolved.len), .level = resolved.level, .levels = buffers.levels[0..resolved.len] };
     }
 
     pub fn direction(p: *const Paragraph) Direction {
@@ -255,7 +254,7 @@ fn bracketOf(cp: u21) ?data.bidi.Bracket {
 /// a removed one's being the level before it.
 pub fn resolveClasses(classes: []const BidiClass, options: Options, buffers: Buffers) Level {
     aegis.assert.pre(classes.len <= max_paragraph and buffers.levels.len >= classes.len and buffers.scratch.len >= classes.len, "the buffers hold a level and a slot for each class");
-    return resolveIn(Classes{ .list = classes }, buffers.levels[0..classes.len], buffers.scratch[0..classes.len], options);
+    return resolveIn(Classes{ .list = classes }, buffers.levels[0..classes.len], buffers.scratch[0..classes.len], options, .whole).level;
 }
 
 /// The line of `classes` from `start` to `end`, resolved by
@@ -268,22 +267,36 @@ pub fn reorderClasses(classes: []const BidiClass, levels: []const Level, start: 
 // ---------------------------------------------------------------------------
 // Sources: what the rules read of a position.
 
+/// What a source holds at a position: its class, its length, and its code
+/// point (0 for classes alone).
+const Point = struct { class: BidiClass, len: u3, code_point: u21 };
+
 /// Text: each code point's class and bracket at its first byte.
 const Text = struct {
     bytes: []const u8,
 
-    /// The code point that starts at `i` and its class; `len` 1 for ASCII.
-    inline fn at(t: Text, i: usize) struct { class: BidiClass, len: u3 } {
-        const b = t.bytes[i];
-        if (b < 0x80) return .{ .class = ascii_classes[b], .len = 1 };
-        const d = utf8.decode(t.bytes[i..]);
-        return .{ .class = properties.bidiClass(d.code_point), .len = d.len };
+    inline fn len(t: Text) usize {
+        return t.bytes.len;
     }
 
-    fn bracket(t: Text, i: usize) ?data.bidi.Bracket {
+    inline fn byte(t: Text, i: usize) u8 {
+        return t.bytes[i];
+    }
+
+    /// The code point that starts at `i` and its class; `len` 1 for ASCII.
+    inline fn at(t: Text, i: usize) Point {
         const b = t.bytes[i];
-        if (b < 0x80) return if (ascii_bracket[b]) bracketOf(b) else null;
-        return bracketOf(utf8.decode(t.bytes[i..]).code_point);
+        if (b < 0x80) return .{ .class = ascii_classes[b], .len = 1, .code_point = b };
+        const d = utf8.decode(t.bytes[i..]);
+        return .{ .class = properties.bidiClass(d.code_point), .len = d.len, .code_point = d.code_point };
+    }
+
+    /// The bracket at `i`, whose code point is `cp`.
+    fn bracket(t: Text, i: usize, cp: u21) ?data.bidi.Bracket {
+        _ = t;
+        _ = i;
+        if (cp < 0x80) return if (ascii_bracket[cp]) bracketOf(cp) else null;
+        return bracketOf(cp);
     }
 };
 
@@ -291,13 +304,24 @@ const Text = struct {
 const Classes = struct {
     list: []const BidiClass,
 
-    inline fn at(c: Classes, i: usize) struct { class: BidiClass, len: u3 } {
-        return .{ .class = c.list[i], .len = 1 };
+    inline fn len(c: Classes) usize {
+        return c.list.len;
     }
 
-    fn bracket(c: Classes, i: usize) ?data.bidi.Bracket {
+    inline fn byte(c: Classes, i: usize) u8 {
         _ = c;
         _ = i;
+        return 0;
+    }
+
+    inline fn at(c: Classes, i: usize) Point {
+        return .{ .class = c.list[i], .len = 1, .code_point = 0 };
+    }
+
+    fn bracket(c: Classes, i: usize, cp: u21) ?data.bidi.Bracket {
+        _ = c;
+        _ = i;
+        _ = cp;
         return null;
     }
 };
@@ -315,21 +339,6 @@ const ascii_bracket = blk: {
     break :blk out;
 };
 
-/// The end of the paragraph starting at `from`: past its separator.
-fn paragraphEnd(text: []const u8, from: usize) usize {
-    const t: Text = .{ .bytes = text };
-    var i = from;
-    while (i < text.len) {
-        const c = t.at(i);
-        i += c.len;
-        if (c.class == .paragraph_separator) {
-            if (text[i - 1] == '\r' and i < text.len and text[i] == '\n') i += 1;
-            return i;
-        }
-    }
-    return text.len;
-}
-
 // ---------------------------------------------------------------------------
 // The algorithm
 
@@ -345,68 +354,125 @@ fn isNeutral(c: BidiClass) bool {
     };
 }
 
-/// The rules on one paragraph; returns its embedding level.
-fn resolveIn(source: anytype, levels: []Level, slots: []Scratch, options: Options) Level {
-    const n = slots.len;
-    if (n == 0) return switch (options.direction) {
-        .rtl => 1,
-        .ltr => 0,
-        .auto => @intFromBool(options.fallback == .rtl),
-    };
-    classify(source, slots);
+/// Where a paragraph ends: after its separator, for text, or at the end of
+/// the classes, which BidiTest.txt reads as one paragraph whatever they hold.
+const Extent = enum { paragraph, whole };
+
+/// The classes no left-to-right paragraph needs resolving for: without one,
+/// every level of a paragraph at level 0 is 0.
+const leftward: u32 = blk: {
+    var m: u32 = 0;
+    for ([_]BidiClass{ .right_to_left, .arabic_letter, .arabic_number, .left_to_right_embedding, .right_to_left_embedding, .left_to_right_override, .right_to_left_override, .left_to_right_isolate, .right_to_left_isolate, .first_strong_isolate, .pop_directional_isolate }) |c| m |= @as(u32, 1) << @backingInt(c);
+    break :blk m;
+};
+
+/// The rules on one paragraph, in the first `slots.len` positions of
+/// `source` at most: its length and embedding level.
+fn resolveIn(source: anytype, levels: []Level, slots: []Scratch, options: Options, comptime extent: Extent) struct { len: usize, level: Level } {
+    const shape = classify(source, slots, extent);
+    const n = shape.len;
+    const sized = slots[0..n];
     const para: Level = switch (options.direction) {
         .ltr => 0,
         .rtl => 1,
-        .auto => if (firstStrong(slots, 0, n)) |d| @backingInt(d) else @intFromBool(options.fallback == .rtl),
+        .auto => if (firstStrong(sized, 0, n)) |d| @backingInt(d) else @intFromBool(options.fallback == .rtl),
     };
-    explicit(slots, levels, para);
-    var ctx: Context(@TypeOf(source)) = .{ .source = source, .slots = slots, .levels = levels, .para = para };
+    if (para == 0 and shape.seen & leftward == 0) {
+        @memset(levels[0..n], 0);
+        return .{ .len = n, .level = para };
+    }
+    explicit(sized, levels[0..n], para);
+    var ctx: Context(@TypeOf(source)) = .{ .source = source, .slots = sized, .levels = levels[0..n], .para = para };
     ctx.sequences();
-    // I1 and I2, once every sequence is resolved: following a sequence
-    // compares explicit levels, so none moves before.
-    for (slots, levels) |s, *lv| {
-        if (s.removed) continue;
-        if (lv.* & 1 == 0) {
-            if (s.class == .right_to_left) lv.* += 1 else if (s.class == .arabic_number or s.class == .european_number) lv.* += 2;
-        } else if (s.class == .left_to_right or s.class == .european_number or s.class == .arabic_number) lv.* += 1;
-    }
-    // A removed position takes the level before it: a code point's later
-    // bytes their first byte's, a removed character the character's before.
+    // I1 and I2, once every sequence is resolved (following a sequence
+    // compares explicit levels, so none moves before); and a removed
+    // position takes the level before it: a code point's later bytes their
+    // first byte's, a removed character the character's before.
     var before = para;
-    for (slots, levels) |s, *lv| {
-        if (s.removed) lv.* = before else before = lv.*;
+    for (sized, levels[0..n]) |sl, *lv| {
+        if (sl.removed) {
+            lv.* = before;
+            continue;
+        }
+        if (lv.* & 1 == 0) {
+            if (sl.class == .right_to_left) lv.* += 1 else if (sl.class == .arabic_number or sl.class == .european_number) lv.* += 2;
+        } else if (sl.class == .left_to_right or sl.class == .european_number or sl.class == .arabic_number) lv.* += 1;
+        before = lv.*;
     }
-    return para;
+    return .{ .len = n, .level = para };
 }
 
-/// Fills each slot with its position's class, marks the bytes inside code
-/// points removed, and matches isolate initiators with PDIs (BD9) through
-/// the links: an open initiator links to the one open before it, so the
-/// links are the stack.
-fn classify(source: anytype, slots: []Scratch) void {
-    const n = slots.len;
+/// Fills the slots in units: a run of code points of one class is one unit,
+/// its first byte holding the class and the rest marked inside it (removed,
+/// class BN), as is a BN, which X9 removes and nothing reads. Separators
+/// (ES, CS), paired brackets, isolate controls and the controls X9 removes
+/// (kept, with their own classes, for the X rules) are units of their own:
+/// the rules read them one at a time. Each unit links to the next, and
+/// isolate initiators are matched with PDIs (BD9), an open initiator linking
+/// to the one open before it, so the links are the stack. Returns where the
+/// paragraph ends and the classes it holds.
+fn classify(source: anytype, slots: []Scratch, comptime extent: Extent) struct { len: usize, seen: u32 } {
+    const limit = slots.len;
+    const inside: Scratch = .{ .class = .boundary_neutral, .removed = true, .kind = .other, .link = Scratch.none };
     var open: u24 = Scratch.none;
+    var unit: ?usize = null;
+    // The class of the unit later code points of the same class join.
+    var joining: ?BidiClass = null;
+    var seen: u32 = 0;
     var i: usize = 0;
-    while (i < n) {
+    while (i < source.len()) {
         const c = source.at(i);
-        const kind: Scratch.Kind = if (isIsolateInitiator(c.class)) .initiator else if (c.class == .pop_directional_isolate) .pdi else .other;
-        slots[i] = .{ .class = c.class, .removed = false, .kind = kind, .link = Scratch.none };
-        switch (kind) {
-            .initiator => {
-                slots[i].link = open;
-                open = @intCast(i);
+        aegis.assert.pre(i + c.len <= limit, "the buffers hold a level and a slot for each byte of the paragraph");
+        seen |= @as(u32, 1) << @backingInt(c.class);
+        const alone = switch (c.class) {
+            .boundary_neutral => {
+                fill(slots[i..][0..c.len], inside);
+                i += c.len;
+                continue;
             },
-            .pdi => if (open != Scratch.none) {
-                const m = open;
-                open = slots[m].link;
-                slots[m].link = @intCast(i);
-                slots[i].link = m;
-            },
-            .other => {},
+            .left_to_right_embedding, .right_to_left_embedding, .left_to_right_override, .right_to_left_override, .pop_directional_format, .left_to_right_isolate, .right_to_left_isolate, .first_strong_isolate, .pop_directional_isolate, .european_separator, .common_separator, .paragraph_separator, .segment_separator => true,
+            .other_neutral => source.bracket(i, c.code_point) != null,
+            else => false,
+        };
+        if (!alone and joining == c.class) {
+            fill(slots[i..][0..c.len], inside);
+        } else {
+            const removed = switch (c.class) {
+                .left_to_right_embedding, .right_to_left_embedding, .left_to_right_override, .right_to_left_override, .pop_directional_format => true,
+                else => false,
+            };
+            const kind: Scratch.Kind = if (isIsolateInitiator(c.class)) .initiator else if (c.class == .pop_directional_isolate) .pdi else .other;
+            slots[i] = .{ .class = c.class, .removed = removed, .kind = kind, .link = Scratch.none };
+            if (unit) |u| if (slots[u].kind == .other) {
+                slots[u].link = @intCast(i - u);
+            };
+            unit = i;
+            joining = if (alone) null else c.class;
+            switch (kind) {
+                .initiator => {
+                    slots[i].link = open;
+                    open = @intCast(i);
+                },
+                .pdi => if (open != Scratch.none) {
+                    const m = open;
+                    open = slots[m].link;
+                    slots[m].link = @intCast(i);
+                    slots[i].link = m;
+                },
+                .other, .paired => {},
+            }
+            fill(slots[i + 1 ..][0 .. c.len - 1], inside);
         }
-        var k: usize = 1;
-        while (k < c.len) : (k += 1) slots[i + k] = .{ .class = .boundary_neutral, .removed = true, .kind = .other, .link = Scratch.none };
         i += c.len;
+        if (extent == .paragraph and c.class == .paragraph_separator) {
+            // A CR LF pair is one separator.
+            if (source.byte(i - 1) == '\r' and i < source.len() and source.byte(i) == '\n') {
+                aegis.assert.pre(i < limit, "the buffers hold a level and a slot for each byte of the paragraph");
+                slots[i] = inside;
+                i += 1;
+            }
+            break;
+        }
     }
     // Initiators left open have no matching PDI.
     while (open != Scratch.none) {
@@ -414,6 +480,31 @@ fn classify(source: anytype, slots: []Scratch) void {
         open = slots[m].link;
         slots[m].link = Scratch.none;
     }
+    return .{ .len = i, .seen = seen };
+}
+
+/// Sets a code point's slots, at most four: stores, not a call to memset.
+inline fn fill(slots: []Scratch, value: Scratch) void {
+    switch (slots.len) {
+        0 => {},
+        1 => slots[0] = value,
+        2 => slots[0..2].* = @splat(value),
+        3 => slots[0..3].* = @splat(value),
+        else => slots[0..4].* = @splat(value),
+    }
+}
+
+/// The unit after the one at `p`, kept or removed, or null.
+inline fn nextUnit(slots: []const Scratch, p: usize) ?usize {
+    const s = slots[p];
+    if (s.kind == .other) return if (s.link == Scratch.none) null else p + s.link;
+    // An isolate control or a paired bracket links elsewhere: look.
+    var q = p + 1;
+    while (q < slots.len) : (q += 1) {
+        const t = slots[q];
+        if (!(t.removed and t.class == .boundary_neutral)) return q;
+    }
+    return null;
 }
 
 /// Rules P2 and P3 on positions `from` to `to`: the direction of the first
@@ -455,10 +546,12 @@ fn explicit(slots: []Scratch, levels: []Level, para: Level) void {
     var overflow_embeddings: usize = 0;
     var valid_isolates: usize = 0;
     const n = slots.len;
-    var i: usize = 0;
-    while (i < n) : (i += 1) {
+    // Every unit; the controls X9 removes still act here.
+    var at: ?usize = for (slots, 0..) |s, k| {
+        if (!(s.removed and s.class == .boundary_neutral)) break k;
+    } else null;
+    while (at) |i| : (at = nextUnit(slots, i)) {
         const s = &slots[i];
-        if (s.removed) continue;
         const top = stack[depth - 1];
         switch (s.class) {
             .right_to_left_embedding, .left_to_right_embedding, .right_to_left_override, .left_to_right_override => {
@@ -544,8 +637,11 @@ fn Context(comptime Source: type) type {
 
         /// The next position kept by X9 after `p` in text order, or null.
         inline fn after(c: *const Self, p: usize) ?usize {
-            var q = p + 1;
-            while (q < c.slots.len) : (q += 1) if (!c.slots[q].removed) return q;
+            var q = nextUnit(c.slots, p);
+            while (q) |u| {
+                if (!c.slots[u].removed) return u;
+                q = nextUnit(c.slots, u);
+            }
             return null;
         }
 
@@ -575,31 +671,42 @@ fn Context(comptime Source: type) type {
             return null;
         }
 
-        /// Every isolating run sequence, each resolved by rules W1 to I2.
+        /// Every isolating run sequence, each resolved by rules W1 to N2: one
+        /// starts at each level run's first position, unless that is a
+        /// matched PDI, which continues its initiator's.
         fn sequences(c: *Self) void {
-            var p: usize = 0;
-            while (p < c.slots.len) : (p += 1) {
-                const s = c.slots[p];
-                if (s.removed) continue;
-                if (c.before(p)) |q| if (c.levels[q] == c.levels[p]) continue;
-                // A matched PDI starting a level run continues its initiator's sequence.
-                if (s.kind == .pdi and s.link != Scratch.none and c.prev(p) != null) continue;
-                c.sequence(p);
+            var p: ?usize = c.firstKept();
+            var earlier: ?Level = null;
+            while (p) |at| : (p = c.after(at)) {
+                const level = c.levels[at];
+                const starts = earlier == null or earlier.? != level;
+                earlier = level;
+                if (!starts) continue;
+                const s = c.slots[at];
+                if (s.kind == .pdi and s.link != Scratch.none) continue;
+                c.sequence(at);
             }
         }
 
-        fn sequence(c: *Self, first: usize) void {
-            const level = c.levels[first];
-            var last = first;
-            while (c.next(last)) |q| last = q;
-            const before_level = if (c.before(first)) |q| c.levels[q] else c.para;
-            const after_level = if (c.slots[last].kind == .initiator) c.para else if (c.after(last)) |q| c.levels[q] else c.para;
+        fn firstKept(c: *const Self) ?usize {
+            for (c.slots, 0..) |s, i| if (!s.removed) return i;
+            return null;
+        }
+
+        fn sequence(c: *Self, start: usize) void {
+            const level = c.levels[start];
+            const before_level = if (c.before(start)) |q| c.levels[q] else c.para;
             const sos: BidiClass = if (@max(level, before_level) & 1 == 1) .right_to_left else .left_to_right;
-            const eos: BidiClass = if (@max(level, after_level) & 1 == 1) .right_to_left else .left_to_right;
             const e: BidiClass = if (level & 1 == 1) .right_to_left else .left_to_right;
-            c.weak(first, sos);
-            c.brackets(first, sos, e);
-            c.neutrals(first, sos, eos, e);
+            c.weak(start, sos);
+            c.brackets(start, sos, e);
+            c.neutrals(start, sos, level, e);
+        }
+
+        /// The end-of-sequence type, from the sequence's last position.
+        fn eos(c: *const Self, last: usize, level: Level) BidiClass {
+            const after_level = if (c.slots[last].kind == .initiator) c.para else if (c.after(last)) |q| c.levels[q] else c.para;
+            return if (@max(level, after_level) & 1 == 1) .right_to_left else .left_to_right;
         }
 
         /// Rules W1 to W7.
@@ -701,7 +808,7 @@ fn Context(comptime Source: type) type {
             var p: ?usize = first;
             find: while (p) |at| : (p = c.next(at)) {
                 if (c.slots[at].class != .other_neutral) continue;
-                const b = c.source.bracket(at) orelse continue;
+                const b = c.source.bracket(at, c.source.at(at).code_point) orelse continue;
                 if (b.opening) {
                     if (depth == stack.len) break :find;
                     stack[depth] = .{ .id = b.id, .at = at };
@@ -711,6 +818,7 @@ fn Context(comptime Source: type) type {
                     while (k > 0) {
                         k -= 1;
                         if (stack[k].id == b.id) {
+                            c.slots[stack[k].at].kind = .paired;
                             c.slots[stack[k].at].link = @intCast(at);
                             depth = k;
                             any = true;
@@ -725,7 +833,7 @@ fn Context(comptime Source: type) type {
             p = first;
             while (p) |at| : (p = c.next(at)) {
                 const s = c.slots[at];
-                if (s.kind == .other and s.link != Scratch.none and s.class == .other_neutral) {
+                if (s.kind == .paired) {
                     const close: usize = s.link;
                     var found_e = false;
                     var found_opposite = false;
@@ -762,11 +870,13 @@ fn Context(comptime Source: type) type {
         }
 
         /// Rules N1 and N2.
-        fn neutrals(c: *Self, first: usize, sos: BidiClass, eos: BidiClass, e: BidiClass) void {
+        fn neutrals(c: *Self, start: usize, sos: BidiClass, level: Level, e: BidiClass) void {
             var earlier = sos;
             var run: ?usize = null;
-            var p: ?usize = first;
+            var last = start;
+            var p: ?usize = start;
             while (p) |at| : (p = c.next(at)) {
+                last = at;
                 const cls = c.slots[at].class;
                 if (isNeutral(cls)) {
                     if (run == null) run = at;
@@ -779,7 +889,10 @@ fn Context(comptime Source: type) type {
                 }
                 earlier = d;
             }
-            if (run) |from| c.setRun(from, null, if (earlier == eos) eos else e);
+            if (run) |from| {
+                const end = c.eos(last, level);
+                c.setRun(from, null, if (earlier == end) end else e);
+            }
         }
     };
 }
@@ -802,28 +915,43 @@ fn reorder(source: anytype, levels: []const Level, start: usize, end: usize, par
     var out: Runs = .{ .buffer = buffer, .levels = levels };
     // L1, over the line's original classes: a segment or paragraph separator
     // and the whitespace before it, and the whitespace ending the line, at
-    // the paragraph level.
+    // the paragraph level. Text finds its separators by their bytes and reads
+    // back from each over the whitespace before it, so a line is not decoded.
     var plain = start;
-    var pending: ?usize = null;
-    var i = start;
-    while (i < end) {
-        const c = source.at(i);
-        const next = i + c.len;
-        if (c.class == .segment_separator or c.class == .paragraph_separator) {
-            const reset = pending orelse i;
+    if (@TypeOf(source) == Text) {
+        var i = start;
+        while (separatorIn(source.bytes, i, end)) |sep| {
+            const reset = whitespaceBefore(source, plain, sep.at);
             out.plain(plain, reset);
-            out.at(reset, next, para);
-            plain = next;
-            pending = null;
-        } else if (trailing(c.class)) {
-            if (pending == null) pending = i;
-        } else pending = null;
-        i = next;
-    }
-    if (pending) |reset| {
+            out.at(reset, sep.at + sep.len, para);
+            plain = sep.at + sep.len;
+            i = plain;
+        }
+        const reset = whitespaceBefore(source, plain, end);
         out.plain(plain, reset);
         out.at(reset, end, para);
-    } else out.plain(plain, end);
+    } else {
+        var pending: ?usize = null;
+        var i = start;
+        while (i < end) {
+            const c = source.at(i);
+            const next = i + c.len;
+            if (c.class == .segment_separator or c.class == .paragraph_separator) {
+                const reset = pending orelse i;
+                out.plain(plain, reset);
+                out.at(reset, next, para);
+                plain = next;
+                pending = null;
+            } else if (trailing(c.class)) {
+                if (pending == null) pending = i;
+            } else pending = null;
+            i = next;
+        }
+        if (pending) |reset| {
+            out.plain(plain, reset);
+            out.at(reset, end, para);
+        } else out.plain(plain, end);
+    }
     // L2: from the highest level to the lowest odd one, reverse every
     // sequence of runs at that level or higher.
     const runs = buffer[0..out.len];
@@ -847,6 +975,37 @@ fn reorder(source: anytype, levels: []const Level, start: usize, end: usize, par
         }
     }
     return out.len;
+}
+
+/// The first segment or paragraph separator from `from` to `to`, found by
+/// its bytes: every one is below U+0020 but U+0085 (C2 85) and U+2029 (E2 80
+/// A9), whose bytes start no other code point there.
+fn separatorIn(bytes: []const u8, from: usize, to: usize) ?struct { at: usize, len: usize } {
+    var i = from;
+    while (i < to) : (i += 1) {
+        const b = bytes[i];
+        if (b < 0x20) {
+            const c = ascii_classes[b];
+            if (c == .segment_separator or c == .paragraph_separator) return .{ .at = i, .len = 1 };
+        } else if (b == 0xc2 and i + 1 < to and bytes[i + 1] == 0x85) {
+            return .{ .at = i, .len = 2 };
+        } else if (b == 0xe2 and i + 2 < to and bytes[i + 1] == 0x80 and bytes[i + 2] == 0xa9) {
+            return .{ .at = i, .len = 3 };
+        }
+    }
+    return null;
+}
+
+/// Where the whitespace (as L1 reads it) ending at `to` starts, at `floor`
+/// at the earliest.
+fn whitespaceBefore(source: Text, floor: usize, to: usize) usize {
+    var at = to;
+    while (at > floor) {
+        const start = records.codePointStart(source.bytes[0..at], at);
+        if (!trailing(source.at(start).class)) break;
+        at = start;
+    }
+    return at;
 }
 
 /// Runs in logical order, merged where neighbours share a level.
