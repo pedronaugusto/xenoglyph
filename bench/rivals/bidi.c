@@ -1,8 +1,10 @@
 /* The rows of bench/bidi.zig through SheenBidi 3.0.0 and ICU4C (ubidi): the
  * same paragraphs and line ends. By hand, see README.md. Each row is timed
  * in batches grown to a millisecond, 31 samples, the median printed in
- * microseconds a unit. ICU is given UTF-16, its own form, converted once
- * outside the timing; SheenBidi the UTF-8. */
+ * microseconds a unit. ICU's rows run twice: given UTF-16, its own form,
+ * converted once outside the timing ("utf16"), and converting the UTF-8 in
+ * the timing as a UTF-8 caller must ("utf8"; the line ends' UTF-16 offsets
+ * are still worked out once outside). SheenBidi takes the UTF-8. */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -94,6 +96,29 @@ static void icu_resolve(Input *in) {
     sink += ubidi_getParaLevel(para);
 }
 
+static UChar *converted;
+
+static void icu8_resolve(Input *in) {
+    UErrorCode e = U_ZERO_ERROR;
+    int32_t units = 0;
+    u_strFromUTF8(converted, (int32_t)in->len, &units, in->text, (int32_t)in->len, &e);
+    ubidi_setPara(para, converted, units, UBIDI_DEFAULT_LTR, NULL, &e);
+    sink += ubidi_getParaLevel(para);
+}
+
+static void icu8_lines(Input *in) {
+    UErrorCode e = U_ZERO_ERROR;
+    int32_t units = 0;
+    u_strFromUTF8(converted, (int32_t)in->len, &units, in->text, (int32_t)in->len, &e);
+    ubidi_setPara(para, converted, units, UBIDI_DEFAULT_LTR, NULL, &e);
+    int32_t start = 0;
+    for (size_t b = 0; b < in->nbreaks; b++) {
+        ubidi_setLine(para, start, in->ubreaks[b], line, &e);
+        sink += ubidi_countRuns(line, &e);
+        start = in->ubreaks[b];
+    }
+}
+
 static void icu_lines(Input *in) {
     UErrorCode e = U_ZERO_ERROR;
     ubidi_setPara(para, in->u16, in->u16len, UBIDI_DEFAULT_LTR, NULL, &e);
@@ -137,13 +162,16 @@ int main(int argc, char **argv) {
     UErrorCode e = U_ZERO_ERROR;
     para = ubidi_openSized(size * 2, 0, &e);
     line = ubidi_openSized(size * 2, 0, &e);
+    converted = malloc(size * 4);
     for (int k = 0; k < kinds; k++) {
         if (strstr("resolve", only) || !*only) row("SheenBidi 3.0.0", "resolve", k, sheen_resolve);
-        if (strstr("resolve", only) || !*only) row("ICU4C " U_ICU_VERSION, "resolve", k, icu_resolve);
+        if (strstr("resolve", only) || !*only) row("ICU4C " U_ICU_VERSION " utf16", "resolve", k, icu_resolve);
+        if (strstr("resolve", only) || !*only) row("ICU4C " U_ICU_VERSION " utf8", "resolve", k, icu8_resolve);
     }
     for (int k = 0; k < kinds; k++) {
         row("SheenBidi 3.0.0", "lines", k, sheen_lines);
-        row("ICU4C " U_ICU_VERSION, "lines", k, icu_lines);
+        row("ICU4C " U_ICU_VERSION " utf16", "lines", k, icu_lines);
+        row("ICU4C " U_ICU_VERSION " utf8", "lines", k, icu8_lines);
     }
     return 0;
 }
