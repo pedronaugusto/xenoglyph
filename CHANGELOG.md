@@ -6,12 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Breaking
+
+- `encoding.Decoder`'s ISO-2022-JP state is aegis's `state.Machine`, every transition the standard's decoder takes declared: the fields `iso_state` and `iso_output_state` (an `Iso2022`) are `iso` (the machine's runtime) and `iso_output_state` (the event back to the output state). They are the decoder's own state, which no caller sets.
+
 ### Added
 
 - `collation`: the Unicode Collation Algorithm (UTS #10) with CLDR's root collation (CLDR 49, UCA 18.0.0). `collation.compare` orders two texts and `collation.sortKey` writes bytes that order as their texts do; neither allocates. `collation.Options`: `strength` (primary to identical), `alternate` (non-ignorable or shifted, CLDR's variable top), `case_first`, `case_level`, `numeric`; `collation.Strength`. Input in any normalization form; contractions contiguous and discontiguous; implicit weights for Han, Tangut, Nushu, Khitan, Jurchen, Seal and unassigned code points. CLDR's CollationTest_CLDR_NON_IGNORABLE.txt and _SHIFTED.txt pass in full.
 
 ### Changed
 
+- Development: preflight 0.18.0, with the aegis pack's rules A001-A021 at gate. The generator reads files with aegis's `own.readFile`, and `bidi`'s bracket stack is aegis's `bounded.Array`.
+- Pins aegis 0.1.18.
 - Development: the rivals' harnesses (SheenBidi and ICU for bidi, encoding_rs for the encodings) are out of the repository; `bench/` holds xenoglyph's own rows only.
 
 ## [0.4.3] - 2026-10-25

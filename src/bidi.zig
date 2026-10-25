@@ -54,7 +54,7 @@ pub const Options = struct {
 /// One byte's working state while a paragraph is resolved. The caller owns
 /// the memory; it means nothing after `resolve` returns.
 pub const Scratch = packed struct(u32) {
-    class: BidiClass,
+    class: BidiClass, // aegis: no-danger: a character's Bidi_Class as the rules refine it, data and not a state; no transitions to declare
     /// Skipped by every rule after X9: a character X9 removes, or a byte
     /// inside a unit (with class BN), which the unit's first byte stands for.
     removed: bool,
@@ -795,26 +795,27 @@ fn Context(comptime Source: type) type {
         fn brackets(c: *Self, first: usize, sos: BidiClass, e: BidiClass) void {
             if (Source == Classes) return;
             const Open = struct { id: u21, at: usize };
-            var stack: [63]Open = undefined;
-            var depth: usize = 0;
+            var stack: aegis.bounded.Array(Open, 63) = .init;
             var any = false;
             var p: ?usize = first;
             find: while (p) |at| : (p = c.next(at)) {
                 if (c.slots[at].class != .other_neutral) continue;
                 const b = c.source.bracket(at, c.source.at(at).code_point) orelse continue;
                 if (b.opening) {
-                    if (depth == stack.len) break :find;
-                    stack[depth] = .{ .id = b.id, .at = at };
-                    depth += 1;
+                    var open: Open = .{ .id = b.id, .at = at };
+                    stack.append(&open) catch break :find;
                 } else {
-                    var k = depth;
+                    const opened = stack.constItems();
+                    var k = opened.len;
                     while (k > 0) {
                         k -= 1;
-                        if (stack[k].id == b.id) {
-                            c.slots[stack[k].at].kind = .paired;
-                            c.slots[stack[k].at].link = @intCast(at);
-                            depth = k;
+                        if (opened[k].id == b.id) {
+                            c.slots[opened[k].at].kind = .paired;
+                            c.slots[opened[k].at].link = @intCast(at);
                             any = true;
+                            // The pair closes every bracket opened after it.
+                            var closed: Open = undefined;
+                            while (stack.len() > k) stack.pop(&closed) catch break;
                             break;
                         }
                     }

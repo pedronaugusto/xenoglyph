@@ -25,13 +25,17 @@ pub fn dev(b: *std.Build, tools: type) void {
     // The generator runs on the build host, built optimized: it reads the
     // whole UCD on every check. It targets the host's baseline CPU, as the
     // tests do in CI, where a binary built on one runner runs on another.
+    const host = b.resolveTargetQuery(.{ .cpu_model = .baseline });
     const generator = b.addExecutable(.{
         .name = "generate",
         .root_module = b.createModule(.{
             .root_source_file = p.path("tools/generate.zig"),
-            .target = b.resolveTargetQuery(.{ .cpu_model = .baseline }),
+            .target = host,
             .optimize = .safe,
-            .imports = &.{.{ .name = "classes", .module = b.createModule(.{ .root_source_file = p.path("src/classes.zig") }) }},
+            .imports = &.{
+                .{ .name = "classes", .module = b.createModule(.{ .root_source_file = p.path("src/classes.zig") }) },
+                .{ .name = "aegis", .module = p.dependency("aegis", .{ .target = host, .optimize = .safe }).module("aegis") },
+            },
         }),
     });
     const write = b.addRunArtifact(generator);

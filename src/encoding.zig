@@ -250,7 +250,34 @@ const Step = union(enum) {
     finished,
 };
 
+/// ISO-2022-JP's decoder states, as the standard names them.
 const Iso2022 = enum(u3) { ascii, roman, katakana, lead_byte, trail_byte, escape_start, escape };
+
+/// What moves ISO-2022-JP's decoder between its states: an ESC, a lead or
+/// trail byte of JIS X 0208, the byte after ESC that an escape sequence
+/// goes on with, and the four states an escape designates (or that a failed
+/// one goes back to).
+const Iso2022Event = enum(u3) { escape, lead, trail, intermediate, ascii, roman, katakana, jis0208 };
+
+/// The standard's ISO-2022-JP decoder, its every transition declared.
+const Iso2022Machine = aegis.state.Machine(Iso2022, Iso2022Event, .{ .initial = .ascii, .edges = &.{
+    .{ .from = .ascii, .on = .escape, .to = .escape_start },
+    .{ .from = .roman, .on = .escape, .to = .escape_start },
+    .{ .from = .katakana, .on = .escape, .to = .escape_start },
+    .{ .from = .lead_byte, .on = .escape, .to = .escape_start },
+    .{ .from = .lead_byte, .on = .lead, .to = .trail_byte },
+    .{ .from = .trail_byte, .on = .trail, .to = .lead_byte },
+    .{ .from = .trail_byte, .on = .escape, .to = .escape_start },
+    .{ .from = .escape_start, .on = .intermediate, .to = .escape },
+    .{ .from = .escape_start, .on = .ascii, .to = .ascii },
+    .{ .from = .escape_start, .on = .roman, .to = .roman },
+    .{ .from = .escape_start, .on = .katakana, .to = .katakana },
+    .{ .from = .escape_start, .on = .jis0208, .to = .lead_byte },
+    .{ .from = .escape, .on = .ascii, .to = .ascii },
+    .{ .from = .escape, .on = .roman, .to = .roman },
+    .{ .from = .escape, .on = .katakana, .to = .katakana },
+    .{ .from = .escape, .on = .jis0208, .to = .lead_byte },
+} });
 
 /// A decoder of one encoding: `decode` takes input in pieces, the standard's
 /// state held between them.
@@ -280,8 +307,9 @@ pub const Decoder = struct {
     utf8_cp: u21 = 0,
     utf8_lower: u8 = 0x80,
     utf8_upper: u8 = 0xbf,
-    iso_state: Iso2022 = .ascii,
-    iso_output_state: Iso2022 = .ascii,
+    iso: Iso2022Machine.Runtime(void) = .init({}),
+    /// The event back to the standard's output state.
+    iso_output_state: Iso2022Event = .ascii,
     iso_output: bool = false,
     utf16_lead_byte: ?u8 = null,
     utf16_lead_surrogate: ?u16 = null,
@@ -582,7 +610,7 @@ pub const Decoder = struct {
         var i = start;
         var dest = out.dest;
         var at = out.len;
-        switch (d.iso_state) {
+        switch (d.iso.current()) {
             .ascii => while (i < input.len) {
                 const rest = input[i..];
                 if (rest.len >= 16) {
@@ -661,14 +689,14 @@ pub const Decoder = struct {
                 d.lead = 0;
                 return .failed;
             },
-            .iso_2022_jp => switch (d.iso_state) {
+            .iso_2022_jp => switch (d.iso.current()) {
                 .trail_byte => {
-                    d.iso_state = .lead_byte;
+                    d.isoStep(.trail);
                     return .failed;
                 },
                 .escape_start => {
                     d.iso_output = false;
-                    d.iso_state = d.iso_output_state;
+                    d.isoStep(d.iso_output_state);
                     return .failed;
                 },
                 .escape => {
@@ -676,7 +704,7 @@ pub const Decoder = struct {
                     d.lead = 0;
                     d.prepend(&.{l});
                     d.iso_output = false;
-                    d.iso_state = d.iso_output_state;
+                    d.isoStep(d.iso_output_state);
                     return .failed;
                 },
                 else => {},
@@ -846,11 +874,16 @@ pub const Decoder = struct {
         return .failed;
     }
 
+    /// Takes ISO-2022-JP's edge on `event`; each caller takes one its state declares.
+    fn isoStep(d: *Decoder, event: Iso2022Event) void {
+        _ = d.iso.step(event) catch aegis.assert.never("an ISO-2022-JP edge its state declares");
+    }
+
     fn iso2022Step(d: *Decoder, b: u8) Step {
-        switch (d.iso_state) {
+        switch (d.iso.current()) {
             .ascii => {
                 if (b == 0x1b) {
-                    d.iso_state = .escape_start;
+                    d.isoStep(.escape);
                     return .more;
                 }
                 d.iso_output = false;
@@ -859,7 +892,7 @@ pub const Decoder = struct {
             },
             .roman => {
                 if (b == 0x1b) {
-                    d.iso_state = .escape_start;
+                    d.isoStep(.escape);
                     return .more;
                 }
                 d.iso_output = false;
@@ -870,7 +903,7 @@ pub const Decoder = struct {
             },
             .katakana => {
                 if (b == 0x1b) {
-                    d.iso_state = .escape_start;
+                    d.isoStep(.escape);
                     return .more;
                 }
                 d.iso_output = false;
@@ -879,23 +912,23 @@ pub const Decoder = struct {
             },
             .lead_byte => {
                 if (b == 0x1b) {
-                    d.iso_state = .escape_start;
+                    d.isoStep(.escape);
                     return .more;
                 }
                 d.iso_output = false;
                 if (b >= 0x21 and b <= 0x7e) {
                     d.lead = b;
-                    d.iso_state = .trail_byte;
+                    d.isoStep(.lead);
                     return .more;
                 }
                 return .failed;
             },
             .trail_byte => {
                 if (b == 0x1b) {
-                    d.iso_state = .escape_start;
+                    d.isoStep(.escape);
                     return .failed;
                 }
-                d.iso_state = .lead_byte;
+                d.isoStep(.trail);
                 if (b >= 0x21 and b <= 0x7e) {
                     const pointer = @as(usize, d.lead - 0x21) * 94 + (b - 0x21);
                     const cp = if (pointer < tables.jis0208.len) tables.jis0208[pointer] else 0;
@@ -906,28 +939,28 @@ pub const Decoder = struct {
             .escape_start => {
                 if (b == 0x24 or b == 0x28) {
                     d.lead = b;
-                    d.iso_state = .escape;
+                    d.isoStep(.intermediate);
                     return .more;
                 }
                 d.prepend(&.{b});
                 d.iso_output = false;
-                d.iso_state = d.iso_output_state;
+                d.isoStep(d.iso_output_state);
                 return .failed;
             },
             .escape => {
                 const l = d.lead;
                 d.lead = 0;
-                const next: ?Iso2022 = if (l == 0x28 and b == 0x42) .ascii else if (l == 0x28 and b == 0x4a) .roman else if (l == 0x28 and b == 0x49) .katakana else if (l == 0x24 and (b == 0x40 or b == 0x42)) .lead_byte else null;
-                if (next) |state| {
-                    d.iso_state = state;
-                    d.iso_output_state = state;
+                const next: ?Iso2022Event = if (l == 0x28 and b == 0x42) .ascii else if (l == 0x28 and b == 0x4a) .roman else if (l == 0x28 and b == 0x49) .katakana else if (l == 0x24 and (b == 0x40 or b == 0x42)) .jis0208 else null;
+                if (next) |designated| {
+                    d.isoStep(designated);
+                    d.iso_output_state = designated;
                     const output = d.iso_output;
                     d.iso_output = true;
                     return if (output) .failed else .more;
                 }
                 d.prepend(&.{ l, b });
                 d.iso_output = false;
-                d.iso_state = d.iso_output_state;
+                d.isoStep(d.iso_output_state);
                 return .failed;
             },
         }

@@ -13,6 +13,7 @@
 //! values are wider than a byte stores one byte per entry indexing a list
 //! of the distinct values, when there are at most 256 of them.
 const std = @import("std");
+const aegis = @import("aegis");
 const classes = @import("classes");
 const mappings = @import("mappings.zig");
 const idna = @import("idna.zig");
@@ -62,7 +63,7 @@ pub fn main(init: std.process.Init) !void {
     defer out.close(io);
     var differ = false;
     for (files) |file| {
-        const have = out.readFileAlloc(io, file.name, gpa, .limited(64 << 20)) catch |err| {
+        const have = aegis.own.readFile(io, out, file.name, gpa, max_file) catch |err| {
             std.log.err("{s}/{s}: {t}", .{ paths[1], file.name, err });
             differ = true;
             continue;
@@ -124,13 +125,16 @@ fn generate(gpa: Allocator, ucd: Ucd) ![]const File {
 // ---------------------------------------------------------------------------
 // Reading the UCD
 
+/// The longest file the generator reads: a UCD file or a table it wrote.
+const max_file: aegis.units.Bytes(u64) = .fromRaw(64 << 20);
+
 pub const Ucd = struct {
     dir: std.Io.Dir,
     io: std.Io,
     gpa: Allocator,
 
     pub fn read(u: Ucd, path: []const u8) ![]const u8 {
-        return u.dir.readFileAlloc(u.io, path, u.gpa, .limited(64 << 20)) catch |err| {
+        return aegis.own.readFile(u.io, u.dir, path, u.gpa, max_file) catch |err| {
             std.log.err("ucd/{s}: {t}", .{ path, err });
             return err;
         };
