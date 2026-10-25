@@ -15,3 +15,4 @@ pub const casing = @import("data/casing.zig");
 pub const idna = @import("data/idna.zig");
 pub const bidi = @import("data/bidi.zig");
 pub const encoding = @import("data/encoding.zig");
+pub const collation = @import("data/collation.zig");

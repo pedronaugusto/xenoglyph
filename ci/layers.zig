@@ -26,6 +26,7 @@ pub const layers: []const gantry.rules.Layer = &.{
     } },
     .{ .name = "case", .patterns = &.{"src/case.zig"} },
     .{ .name = "domain names", .patterns = &.{"src/idna.zig"} },
+    .{ .name = "collation", .patterns = &.{"src/collation.zig"} },
     .{ .name = "public", .patterns = &.{"src/xenoglyph.zig"} },
 };
 
@@ -34,6 +35,7 @@ pub const entries: []const []const u8 = &.{};
 /// src/data.zig publishes the generated tables of its directory.
 pub const reexports = [_]struct { from: []const u8, to: []const u8 }{
     .{ .from = "src/data.zig", .to = "src/data/cluster.zig" },
+    .{ .from = "src/data.zig", .to = "src/data/collation.zig" },
     .{ .from = "src/data.zig", .to = "src/data/general_category.zig" },
     .{ .from = "src/data.zig", .to = "src/data/east_asian_width.zig" },
     .{ .from = "src/data.zig", .to = "src/data/word_break.zig" },

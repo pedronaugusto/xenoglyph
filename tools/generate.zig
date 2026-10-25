@@ -17,6 +17,7 @@ const classes = @import("classes");
 const mappings = @import("mappings.zig");
 const idna = @import("idna.zig");
 const bidi = @import("bidi.zig");
+const collation = @import("collation.zig");
 const encoding = @import("encoding.zig");
 
 const Allocator = std.mem.Allocator;
@@ -115,6 +116,7 @@ fn generate(gpa: Allocator, ucd: Ucd) ![]const File {
     try files.append(gpa, .{ .name = "idna.zig", .bytes = try idna.idnaFile(gpa, ucd, aliases, p, ud) });
     try files.append(gpa, .{ .name = "bidi.zig", .bytes = try bidi.bidiFile(gpa, ucd, ud) });
     try files.append(gpa, .{ .name = "encoding.zig", .bytes = try encoding.encodingFile(gpa, ucd) });
+    try files.append(gpa, .{ .name = "collation.zig", .bytes = try collation.collationFile(gpa, ucd, ud) });
     for (files.items) |*file| file.bytes = try formatted(gpa, file.name, file.bytes);
     return files.toOwnedSlice(gpa);
 }

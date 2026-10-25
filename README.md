@@ -6,8 +6,8 @@ normalization (UAX #15) and NFKC_Casefold, case mapping, folding and caseless
 matching, how many terminal cells text takes, internationalized domain names
 (UTS #46) and Punycode, bidirectional text (UAX #9) for layout, the
 character properties those rest on, from the
-Unicode Character Database 18.0.0, and the legacy character encodings of the
-WHATWG Encoding Standard both ways. Nothing in it
+Unicode Character Database 18.0.0, collation in CLDR's root order (UTS #10),
+and the legacy character encodings of the WHATWG Encoding Standard both ways. Nothing in it
 allocates, nothing holds global state, and every call builds for a target with
 no operating system.
 
@@ -238,6 +238,28 @@ std.debug.assert(std.mem.eql(u8, w.buffered(), "\u{80}"));
 ```
 <!-- END GENERATED -->
 
+Collation, CLDR's root order, compared or as sort keys:
+
+<!-- BEGIN GENERATED zig build docs -- collation -->
+```zig
+const xenoglyph = @import("xenoglyph");
+
+// CLDR's root order: accents after base letters, case after accents.
+const order = xenoglyph.collation.compare;
+std.debug.assert(order("cote", "c\u{f4}te", .{}) == .lt);
+std.debug.assert(order("c\u{f4}te", "C\u{f4}te", .{}) == .lt);
+std.debug.assert(order("resume", "R\u{e9}sum\u{e9}", .{ .strength = .primary }) == .eq);
+// Numbers as numbers, and punctuation set aside.
+std.debug.assert(order("file9", "file10", .{ .numeric = true }) == .lt);
+std.debug.assert(order("di Silva", "diSilva", .{ .alternate = .shifted }) == .eq);
+// A sort key: bytes that compare as the texts do, for an index.
+var key: [64]u8 = undefined;
+var w: std.Io.Writer = .fixed(&key);
+try xenoglyph.collation.sortKey("c\u{f4}te", &w, .{});
+std.debug.assert(w.buffered().len > 0);
+```
+<!-- END GENERATED -->
+
 ## Design
 
 ### Segmentation
@@ -382,6 +404,37 @@ outside NEC's selection of IBM extensions, kept as a 373-entry list beside the
 jis0208 trie; for Big5 the last pointer for six code points). EUC-JP and
 ISO-2022-JP share jis0208's tables.
 
+### Collation
+
+`collation` is the Unicode Collation Algorithm (UTS #10) with CLDR's root
+collation, CLDR 49 on UCA 18.0.0: the order of a language with no tailoring,
+and the base every CLDR tailoring starts from. `compare(a, b, options)` gives an
+`std.math.Order` and `sortKey(text, writer, options)` writes bytes that order
+(by `std.mem.order`) as `compare` orders their texts, for an index or a
+database. Input is read in NFD (UTS #10 step 1) through `normalize`'s iterator,
+so text in any form compares as its canonical equivalents do, and nothing is
+allocated: `compare` reads each level in turn and stops at the first that
+decides, so most pairs are decided by their first differing letter.
+
+The table is allkeys_CLDR.txt, generated as the Unicode tables are: a trie from
+code point to its collation element (packed in 32 bits: primary, secondary,
+tertiary, variable) or to its run of a short array for expansions, with the
+959 contractions (in NFD) listed by their first code point. Contractions are matched as
+UTS #10 S2.1 states, the longest contiguous first, then extended by unblocked
+non-starters (discontiguous), within the 32 non-starters normalization orders
+at once. Code points with no entry get implicit weights (§10.1): Han by block,
+Tangut, Nushu, Khitan, Jurchen and Seal by their ranges, the rest as
+unassigned. Precomposed entries are left out of the table, since NFD never
+reaches them.
+
+`Options` holds CLDR's settings: `strength` (primary to identical),
+`alternate` (`.non_ignorable`, CLDR's default, or `.shifted`, which sets spaces
+and punctuation aside to the quaternary level; CLDR's variable top is the end
+of the punctuation), `case_first` (uppercase or lowercase first at the
+tertiary level), `case_level` (a level of case alone before the tertiary) and
+`numeric` (a run of decimal digits weighs as its number, leading zeros aside,
+in any script).
+
 ### Normalization
 
 NFD, NFC, NFKD and NFKC follow UAX #15 for Unicode 18.0.0: full decomposition
@@ -504,6 +557,7 @@ The UCD files are in the repository and outside what the package ships.
 | Word_Break | 13,520 |
 | East_Asian_Width | 5,248 |
 | Emoji properties | 3,944 |
+| Collation: each code point's element or run, the expansions, contractions | 209,220 |
 | Encoding Standard: single-byte tables and the multi-byte indexes by pointer (decoding) | 197,508 |
 | Encoding Standard: code point to pointer tries and lists (encoding) | 237,620 |
 
@@ -554,6 +608,8 @@ it covers. Every iterator's `offset()` is where its next segment starts.
 | `encoding.decode(e, bytes, writer, options)`, `encoding.Decoder` | Bytes in an encoding to UTF-8, whole or in pieces; replacement or fatal errors, BOM sniffing |
 | `encoding.encode(e, text, writer, options)`, `encoding.Encoder` | UTF-8 to an encoding, whole or in pieces; HTML references or fatal errors for what it lacks |
 | `encoding.outputEncoding(e)`, `encoding.asciiCompatible(e)` | The encoding a form or URL is encoded in; whether ASCII is itself in it |
+| `collation.compare(a, b, options)` | How two texts sort in CLDR's root order (UTS #10) |
+| `collation.sortKey(text, writer, options)` | Bytes that compare as the text sorts |
 | `utf8.wellFormed(bytes)` | How many bytes a string starts with that are well-formed UTF-8 |
 | `utf8.decode`, `utf8.Iterator` | Code points of any bytes, ill-formed subparts as U+FFFD |
 | `utf8.encode(iterator, writer)` | Writes the code points an iterator gives as UTF-8 |
@@ -573,8 +629,10 @@ property's default, as an unassigned code point does.
   applying L3 (combining marks), which shapers do.
 - No Grapheme_Link (deprecated), and no PropList properties beyond what the
   segmentation rules derive from.
-- No collation, no locale data beyond the Lithuanian and Turkic casings, no
-  NFKC_Simple_Casefold, and no identifier profiles (UAX #31).
+- No collation tailorings (CLDR's per-language orders) and no backwards
+  secondary (French accents, a tailoring's setting), no locale data beyond the
+  Lithuanian and Turkic casings, no NFKC_Simple_Casefold, and no identifier
+  profiles (UAX #31).
 - No compatibility caseless match (D146): identifier caseless match covers
   loose matching of compatibility characters.
 - No Transitional Processing for domain names (UTS #46 deprecates it), no
@@ -630,6 +688,16 @@ point has either. Arbitrary text dense in the classes the rules treat
 specially (isolates, embeddings, brackets, numbers, separators, ill-formed
 bytes) resolves with every byte at a level, a code point's bytes at one, runs
 covering each paragraph, and each code point once in a line's visual order.
+
+CLDR's root collation tests pass in full: every line of
+CollationTest_CLDR_NON_IGNORABLE.txt and CollationTest_CLDR_SHIFTED.txt (210,000
+each, but the 30 with a lone surrogate, which UTF-8 cannot hold) sorts after the
+one before it by `compare`, and their sort keys in the same order. On generated
+text dense in contractions, accents, digits, punctuation, ignorables and
+implicit weights, sort keys order as `compare` does under every combination of
+options, a level decides only where those before it were equal, canonically
+equivalent texts compare equal at every strength, and under `numeric` runs of
+digits order as their numbers.
 
 Every encoding decodes encoding_rs's test files, which are generated from the
 standard's indexes, to exactly its expected text, and encodes its expected

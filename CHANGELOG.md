@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `collation`: the Unicode Collation Algorithm (UTS #10) with CLDR's root collation (CLDR 49, UCA 18.0.0). `collation.compare` orders two texts and `collation.sortKey` writes bytes that order as their texts do; neither allocates. `collation.Options`: `strength` (primary to identical), `alternate` (non-ignorable or shifted, CLDR's variable top), `case_first`, `case_level`, `numeric`; `collation.Strength`. Input in any normalization form; contractions contiguous and discontiguous; implicit weights for Han, Tangut, Nushu, Khitan, Jurchen, Seal and unassigned code points. CLDR's CollationTest_CLDR_NON_IGNORABLE.txt and _SHIFTED.txt pass in full.
+
 ### Changed
 
 - Development: the rivals' harnesses (SheenBidi and ICU for bidi, encoding_rs for the encodings) are out of the repository; `bench/` holds xenoglyph's own rows only.

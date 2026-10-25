@@ -63,6 +63,13 @@
         "xenoglyph"
       ]
     },
+    "zig build docs -- collation": {
+      "source": "examples/usage.zig",
+      "region": "collation",
+      "imports": [
+        "xenoglyph"
+      ]
+    },
     "zig build docs -- lines": {
       "source": "examples/usage.zig",
       "region": "lines",

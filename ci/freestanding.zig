@@ -108,3 +108,10 @@ export fn xenoglyphEncoding(label: [*]const u8, label_len: usize, bytes: [*]cons
     xenoglyph.encoding.encode(xenoglyph.encoding.outputEncoding(used), text, &back, .{}) catch return -3;
     return @intCast(text.len + back.buffered().len);
 }
+
+export fn xenoglyphCollation(a: [*]const u8, a_len: usize, b: [*]const u8, b_len: usize, out: [*]u8, out_len: usize) isize {
+    const order = xenoglyph.collation.compare(a[0..a_len], b[0..b_len], .{ .numeric = true, .alternate = .shifted, .strength = .identical });
+    var w: std.Io.Writer = .fixed(out[0..out_len]);
+    xenoglyph.collation.sortKey(a[0..a_len], &w, .{ .case_level = true, .case_first = .upper }) catch return -1;
+    return @as(isize, @backingInt(order)) * 1000 + @as(isize, @intCast(w.buffered().len));
+}

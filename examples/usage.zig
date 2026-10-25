@@ -23,6 +23,7 @@ pub fn main() !void {
     lines();
     bidirectional();
     try encodings();
+    try collating();
     try transform();
 }
 
@@ -182,4 +183,22 @@ fn encodings() !void {
     try decoder.decode("\x81\x30", true, &w);
     std.debug.assert(std.mem.eql(u8, w.buffered(), "\u{80}"));
     // --- README:encoding ---
+}
+
+fn collating() !void {
+    // --- README:collation ---
+    // CLDR's root order: accents after base letters, case after accents.
+    const order = xenoglyph.collation.compare;
+    std.debug.assert(order("cote", "c\u{f4}te", .{}) == .lt);
+    std.debug.assert(order("c\u{f4}te", "C\u{f4}te", .{}) == .lt);
+    std.debug.assert(order("resume", "R\u{e9}sum\u{e9}", .{ .strength = .primary }) == .eq);
+    // Numbers as numbers, and punctuation set aside.
+    std.debug.assert(order("file9", "file10", .{ .numeric = true }) == .lt);
+    std.debug.assert(order("di Silva", "diSilva", .{ .alternate = .shifted }) == .eq);
+    // A sort key: bytes that compare as the texts do, for an index.
+    var key: [64]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&key);
+    try xenoglyph.collation.sortKey("c\u{f4}te", &w, .{});
+    std.debug.assert(w.buffered().len > 0);
+    // --- README:collation ---
 }
