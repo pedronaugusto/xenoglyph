@@ -13,6 +13,7 @@ test {
     _ = @import("bidi.zig");
     _ = @import("encoding.zig");
     _ = @import("collation.zig");
+    _ = @import("security.zig");
     _ = @import("testing/idna_test.zig");
     _ = @import("testing/conformance_test.zig");
     _ = @import("testing/properties_test.zig");
@@ -22,4 +23,5 @@ test {
     _ = @import("testing/bidi_test.zig");
     _ = @import("testing/encoding_test.zig");
     _ = @import("testing/collation_test.zig");
+    _ = @import("testing/security_test.zig");
 }

@@ -24,6 +24,7 @@ pub fn main() !void {
     bidirectional();
     try encodings();
     try collating();
+    checking();
     try transform();
 }
 
@@ -201,4 +202,26 @@ fn collating() !void {
     try xenoglyph.collation.sortKey("c\u{f4}te", &w, .{});
     std.debug.assert(w.buffered().len > 0);
     // --- README:collation ---
+}
+
+fn checking() void {
+    // --- README:security ---
+    const security = xenoglyph.security;
+    // "paypal" with two Cyrillic а: the same skeleton, scripts that do not meet.
+    std.debug.assert(security.confusable("paypal", "p\u{430}yp\u{430}l", .{}, .{ .{}, .{} }) == .mixed_script);
+    std.debug.assert(security.confusable("scope", "slope", .{}, .{ .{}, .{} }) == null);
+    // Restriction levels and the spoof checks of an identifier.
+    std.debug.assert(security.restrictionLevel("caf\u{e9}") == .single_script);
+    std.debug.assert(security.restrictionLevel("\u{3a9}mega") == .minimally_restrictive);
+    const failed = security.check("1\u{9ea}", .highly_restrictive);
+    std.debug.assert(failed.mixed_numbers);
+    std.debug.assert(!failed.restricted);
+    // Shown in display order, each text needs buffers of its own, as long as it.
+    var levels: [2][16]xenoglyph.bidi.Level = undefined;
+    var scratch: [2][16]xenoglyph.bidi.Scratch = undefined;
+    var runs: [2][16]xenoglyph.bidi.Run = undefined;
+    const a: security.Buffers = .{ .levels = &levels[0], .scratch = &scratch[0], .runs = &runs[0] };
+    const b: security.Buffers = .{ .levels = &levels[1], .scratch = &scratch[1], .runs = &runs[1] };
+    std.debug.assert(security.confusable("A1<\u{5e9}\u{5c2}", "\u{391}\u{5e9}\u{5ba}>1", .{}, .{ a, b }) != null);
+    // --- README:security ---
 }

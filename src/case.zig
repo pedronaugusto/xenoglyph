@@ -49,6 +49,12 @@ fn record(cp: u21) classes.Case {
     return @bitCast(tables.records[tables.table.get(cp)]);
 }
 
+/// Soft_Dotted (PropList.txt): a letter whose dot an accent above it takes
+/// the place of, as `i` and `j`.
+pub fn softDotted(cp: u21) bool {
+    return record(cp).soft_dotted;
+}
+
 fn shifted(cp: u21, delta: i24) u21 {
     return aegis.int.narrow(u21, @as(i32, cp) + delta) orelse aegis.assert.never("a case mapping gives a code point");
 }

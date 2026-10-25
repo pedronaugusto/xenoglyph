@@ -20,6 +20,7 @@ const idna = @import("idna.zig");
 const bidi = @import("bidi.zig");
 const collation = @import("collation.zig");
 const encoding = @import("encoding.zig");
+const security = @import("security.zig");
 
 const Allocator = std.mem.Allocator;
 pub const code_points = 0x110000;
@@ -118,6 +119,7 @@ fn generate(gpa: Allocator, ucd: Ucd) ![]const File {
     try files.append(gpa, .{ .name = "bidi.zig", .bytes = try bidi.bidiFile(gpa, ucd, ud) });
     try files.append(gpa, .{ .name = "encoding.zig", .bytes = try encoding.encodingFile(gpa, ucd) });
     try files.append(gpa, .{ .name = "collation.zig", .bytes = try collation.collationFile(gpa, ucd, ud) });
+    try files.append(gpa, .{ .name = "security.zig", .bytes = try security.securityFile(gpa, ucd) });
     for (files.items) |*file| file.bytes = try formatted(gpa, file.name, file.bytes);
     return files.toOwnedSlice(gpa);
 }

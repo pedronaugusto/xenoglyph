@@ -7,7 +7,9 @@ matching, how many terminal cells text takes, internationalized domain names
 (UTS #46) and Punycode, bidirectional text (UAX #9) for layout, the
 character properties those rest on, from the
 Unicode Character Database 18.0.0, collation in CLDR's root order (UTS #10),
-and the legacy character encodings of the WHATWG Encoding Standard both ways. Nothing in it
+the security mechanisms of UTS #39 (confusables, mixed scripts, restriction
+levels and the spoof checks), and the legacy character encodings of the WHATWG
+Encoding Standard both ways. Nothing in it
 allocates, nothing holds global state, and every call builds for a target with
 no operating system.
 
@@ -260,6 +262,32 @@ std.debug.assert(w.buffered().len > 0);
 ```
 <!-- END GENERATED -->
 
+Confusables, mixed scripts and the spoof checks of UTS #39:
+
+<!-- BEGIN GENERATED zig build docs -- security -->
+```zig
+const xenoglyph = @import("xenoglyph");
+
+const security = xenoglyph.security;
+// "paypal" with two Cyrillic а: the same skeleton, scripts that do not meet.
+std.debug.assert(security.confusable("paypal", "p\u{430}yp\u{430}l", .{}, .{ .{}, .{} }) == .mixed_script);
+std.debug.assert(security.confusable("scope", "slope", .{}, .{ .{}, .{} }) == null);
+// Restriction levels and the spoof checks of an identifier.
+std.debug.assert(security.restrictionLevel("caf\u{e9}") == .single_script);
+std.debug.assert(security.restrictionLevel("\u{3a9}mega") == .minimally_restrictive);
+const failed = security.check("1\u{9ea}", .highly_restrictive);
+std.debug.assert(failed.mixed_numbers);
+std.debug.assert(!failed.restricted);
+// Shown in display order, each text needs buffers of its own, as long as it.
+var levels: [2][16]xenoglyph.bidi.Level = undefined;
+var scratch: [2][16]xenoglyph.bidi.Scratch = undefined;
+var runs: [2][16]xenoglyph.bidi.Run = undefined;
+const a: security.Buffers = .{ .levels = &levels[0], .scratch = &scratch[0], .runs = &runs[0] };
+const b: security.Buffers = .{ .levels = &levels[1], .scratch = &scratch[1], .runs = &runs[1] };
+std.debug.assert(security.confusable("A1<\u{5e9}\u{5c2}", "\u{391}\u{5e9}\u{5ba}>1", .{}, .{ a, b }) != null);
+```
+<!-- END GENERATED -->
+
 ## Design
 
 ### Segmentation
@@ -436,6 +464,48 @@ tertiary level), `case_level` (a level of case alone before the tertiary) and
 in any script, after everything below the digits and before what only looks
 like one, U+2070 SUPERSCRIPT ZERO, as ICU orders them).
 
+### Security
+
+`security` is UTS #39, Unicode Security Mechanisms, for Unicode 18.0.0: what
+ICU's spoof checker does. `skeleton(text, writer, options, buffers)` writes a
+text's skeleton (§4): the text as shown (`options.direction`: left to right
+by default, which is UTS #39's `skeleton`; right to left; by its first strong
+character; or `.logical`, its internalSkeleton and ICU's `uspoof_getSkeleton`),
+in NFD, without default ignorables, each code point replaced by its prototype
+from confusables.txt, and in NFD again. Two texts are confusable when their
+skeletons are equal, and `confusable(a, b, options, buffers)` says how:
+single-script where their resolved script sets meet, mixed-script where they
+do not, whole-script where they do not and each is single-script.
+
+A skeleton is an iterator (`security.Skeleton`) of four steps, each reading the
+one before as the next needs it: the code points as shown, decomposed and
+canonically ordered, mapped, and ordered again (prototypes are in NFD, so the
+second NFD only orders). Nothing is allocated, and `confusable` stops at the
+first code point where the two skeletons differ. Showing text in display order
+resolves its paragraphs with `bidi` (UAX #9 up to L2, then a right-to-left
+run's combining marks after their base and its bases mirrored, L3 and L4), in
+the caller's `Buffers`, as long as the text; text that a left-to-right
+paragraph shows in logical order (no right-to-left letter, Arabic number or
+directional format) skips that, and printable ASCII maps byte by byte.
+
+`resolvedScripts(text)` is the intersection of the code points' augmented
+script sets (§5.1: Script_Extensions with Hanb, Hntl, Jpan and Kore added, and
+all scripts for Common and Inherited), a `ScriptSet`. `restrictionLevel(text)`
+is §5.2's level, from ASCII-only to unrestricted, with the General Security
+Profile as the identifier profile: Identifier_Status Allowed, tested segment by
+segment of the text's NFC so that canonically equivalent texts get one answer
+(`u` with U+0308 passes if both are allowed or `ü` is). `check(text, allowed)`
+runs every check and returns `security.Failures` by name: a code point outside
+the profile, a level past `allowed`, mixed decimal number systems (§5.3), a
+nonspacing mark repeated in one run or more than four in a row (§5.4), and
+U+0307 over a letter its dot hides in (ICU's hidden overlay).
+`identifierStatus(cp)` and `identifierType(cp)` are the two properties.
+
+The tables are generated from ucd/security: a trie from code point to its
+prototype (one code point inline, a longer one as a run of a 5,756-code-point
+array), a trie of Identifier_Type sets (Identifier_Status follows from them, as
+IdentifierStatus.txt agrees), and the zero of each decimal digit system.
+
 ### Normalization
 
 NFD, NFC, NFKD and NFKC follow UAX #15 for Unicode 18.0.0: full decomposition
@@ -559,6 +629,7 @@ The UCD files are in the repository and outside what the package ships.
 | East_Asian_Width | 5,248 |
 | Emoji properties | 3,944 |
 | Collation: each code point's element or run, the expansions, contractions | 209,220 |
+| Security: prototypes, Identifier_Type, the decimal systems' zeros | 145,540 |
 | Encoding Standard: single-byte tables and the multi-byte indexes by pointer (decoding) | 197,508 |
 | Encoding Standard: code point to pointer tries and lists (encoding) | 237,620 |
 
@@ -611,6 +682,12 @@ it covers. Every iterator's `offset()` is where its next segment starts.
 | `encoding.outputEncoding(e)`, `encoding.asciiCompatible(e)` | The encoding a form or URL is encoded in; whether ASCII is itself in it |
 | `collation.compare(a, b, options)` | How two texts sort in CLDR's root order (UTS #10) |
 | `collation.sortKey(text, writer, options)` | Bytes that compare as the text sorts |
+| `security.skeleton(text, writer, options, buffers)`, `security.Skeleton` | A text's skeleton (UTS #39 §4), as shown in a direction or in logical order |
+| `security.confusable(a, b, options, buffers)` | Whether two texts are confusable, and single-, mixed- or whole-script |
+| `security.resolvedScripts(text)`, `security.ScriptSet` | A text's resolved script set (§5.1) |
+| `security.restrictionLevel(text)`, `security.check(text, allowed)` | The restriction level (§5.2); every check, and what failed by name |
+| `security.identifierStatus(cp)`, `security.identifierType(cp)` | Identifier_Status and Identifier_Type |
+| `case.softDotted(cp)` | Soft_Dotted |
 | `utf8.wellFormed(bytes)` | How many bytes a string starts with that are well-formed UTF-8 |
 | `utf8.decode`, `utf8.Iterator` | Code points of any bytes, ill-formed subparts as U+FFFD |
 | `utf8.encode(iterator, writer)` | Writes the code points an iterator gives as UTF-8 |
@@ -633,12 +710,14 @@ property's default, as an unassigned code point does.
 - No collation tailorings (CLDR's per-language orders) and no backwards
   secondary (French accents, a tailoring's setting), no locale data beyond the
   Lithuanian and Turkic casings, no NFKC_Simple_Casefold, and no identifier
-  profiles (UAX #31).
+  syntax (UAX #31): `security` checks an identifier's characters and scripts,
+  not its form.
 - No compatibility caseless match (D146): identifier caseless match covers
   loose matching of compatibility characters.
-- No Transitional Processing for domain names (UTS #46 deprecates it), no
-  CONTEXTO rules (optional for clients), and no confusable or mixed-script
-  checks (UTS #39).
+- No Transitional Processing for domain names (UTS #46 deprecates it), and no
+  CONTEXTO rules (optional for clients).
+- No whole-script confusable test of a single string (§4.1), which ICU's
+  spoof checker dropped too, and no CLDR exemplar characters (§5.4).
 
 ## Platforms
 
@@ -705,6 +784,23 @@ the digests in `ucd/uca/icu4c/digests.txt`, which a harness outside the
 repository writes. Its alphabet leaves out Han past the URO: UTS #35 lets the
 root order Han by radical-stroke, as ICU does, or by UCA's implicit weights, as
 allkeys_CLDR.txt and xenoglyph do.
+
+UTS #39's own examples pass: the resolved script sets of its Table 1a, the bidi
+skeletons of its §4 (left-to-right confusable, not right-to-left), and its
+single-, mixed- and whole-script confusables. Against ICU4C 78's spoof checker,
+checked by the digests in `ucd/security/icu4c/digests.txt` that a harness
+outside the repository writes: the skeleton of every code point ICU's Unicode
+17 assigns, but those whose decomposition holds one whose line in
+confusables.txt changed for 18.0; and on 3,000 generated pairs of look-alike
+strings, their logical, left-to-right and right-to-left skeletons, how they are
+confusable, their restriction levels and their checks. The pairs leave out
+three things ICU 78 does other than UTS #39 18.0 says: Han with Latin (ICU adds
+no Hntl to augmented script sets), enclosing marks (ICU's repeated-mark check
+counts gc=Mn alone; §5.4 says Mn or Me), and default ignorables that UAX #9's
+rule X9 removes between runs (ICU gives one the level after it, §5.2 of UAX #9
+the level before). On any text, ill-formed UTF-8 included, every skeleton is in
+NFD without default ignorables, the logical one is idempotent, confusability is
+reflexive and symmetric, and a text meets its own restriction level.
 
 Every encoding decodes encoding_rs's test files, which are generated from the
 standard's indexes, to exactly its expected text, and encodes its expected

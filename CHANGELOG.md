@@ -12,12 +12,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `security`: UTS #39, Unicode Security Mechanisms, for Unicode 18.0.0, as ICU's spoof checker. `security.skeleton(text, writer, options, buffers)` and the iterator `security.Skeleton`: a text's skeleton, as shown left to right (UTS #39's `skeleton`), right to left, by its first strong character, or in logical order (internalSkeleton), with `security.Direction`, `security.Options` and `security.Buffers`; nothing allocated. `security.confusable(a, b, options, buffers)` and `security.Confusability`: single-, mixed- or whole-script confusables. `security.resolvedScripts(text)`, `security.ScriptSet` and `security.WritingSystem`: augmented and resolved script sets with Hanb, Hntl, Jpan and Kore. `security.restrictionLevel(text)` and `security.RestrictionLevel` with the General Security Profile. `security.check(text, allowed)` and `security.Failures`: characters outside the profile, restriction level, mixed numbers, repeated nonspacing marks, runs of more than four, hidden overlays. `security.identifierStatus(cp)`, `security.identifierType(cp)`, `security.IdentifierStatus`, `security.IdentifierType`. Tables generated from confusables.txt, IdentifierType.txt and IdentifierStatus.txt; UTS #39's examples pass, and skeletons, confusables, restriction levels and checks match ICU4C 78's spoof checker.
+- `case.softDotted(cp)`: Soft_Dotted.
 - `collation`: the Unicode Collation Algorithm (UTS #10) with CLDR's root collation (CLDR 49, UCA 18.0.0). `collation.compare` orders two texts and `collation.sortKey` writes bytes that order as their texts do; neither allocates. `collation.Options`: `strength` (primary to identical), `alternate` (non-ignorable or shifted, CLDR's variable top), `case_first`, `case_level`, `numeric`; `collation.Strength`. Input in any normalization form; contractions contiguous and discontiguous; implicit weights for Han, Tangut, Nushu, Khitan, Jurchen, Seal and unassigned code points. CLDR's CollationTest_CLDR_NON_IGNORABLE.txt and _SHIFTED.txt pass in full, and every combination of the options orders generated text as ICU4C 78's root collator does.
 
 ### Changed
 
 - Development: preflight 0.18.0, with the aegis pack's rules A001-A021 at gate. The generator reads files with aegis's `own.readFile`, and `bidi`'s bracket stack is aegis's `bounded.Array`.
 - Pins aegis 0.1.18.
+- Development: `bench/security.zig`, UTS #39's rows: skeletons left to right and right to left, confusables (with the next identifier, and with itself), restriction levels and checks, in four scripts.
 - Development: `bench/collation.zig`, collation's rows: names sorted and given sort keys in six languages, under shifted and numeric, and a comparison that reads every level to its end.
 - Development: the rivals' harnesses (SheenBidi and ICU for bidi, encoding_rs for the encodings) are out of the repository; `bench/` holds xenoglyph's own rows only.
 

@@ -11,6 +11,7 @@ const grapheme = xenoglyph.grapheme;
 const width = xenoglyph.width;
 const utf8 = xenoglyph.utf8;
 const oracle = @import("oracle.zig");
+const security_test = @import("security_test.zig");
 
 const gen = shakedown.gen;
 
@@ -562,4 +563,37 @@ fn domainNames(_: void, case: *shakedown.Case) anyerror!void {
 
 test "a name toAscii accepts is ASCII, processes to itself, and shows without a failure" {
     try shakedown.check(std.testing.allocator, {}, domainNames, .{ .cases = 3000 });
+}
+
+fn skeletonOf(gpa: std.mem.Allocator, bytes: []const u8, direction: xenoglyph.security.Direction) ![]const u8 {
+    var w: std.Io.Writer.Allocating = .init(gpa);
+    try xenoglyph.security.skeleton(bytes, &w.writer, .{ .direction = direction }, try security_test.buffersFor(gpa, bytes));
+    return w.written();
+}
+
+fn security(_: void, case: *shakedown.Case) anyerror!void {
+    const s = xenoglyph.security;
+    const a = try text(case);
+    const b = try text(case);
+    for (std.enums.values(s.Direction)) |direction| {
+        const k = try skeletonOf(case.gpa, a, direction);
+        // A skeleton is in NFD, without default ignorables.
+        try std.testing.expect(xenoglyph.normalize.isNormalized(.nfd, k));
+        var it: utf8.Iterator = .init(k);
+        while (it.next()) |cp| try std.testing.expect(!xenoglyph.core(cp).default_ignorable_code_point);
+        if (direction == .logical) try std.testing.expectEqualStrings(k, try skeletonOf(case.gpa, k, .logical));
+    }
+    // Every text is confusable with itself, and confusability is symmetric.
+    const ba = try security_test.buffersFor(case.gpa, a);
+    const bb = try security_test.buffersFor(case.gpa, b);
+    try std.testing.expect(s.confusable(a, a, .{}, .{ ba, try security_test.buffersFor(case.gpa, a) }) != null);
+    try std.testing.expectEqual(s.confusable(a, b, .{}, .{ ba, bb }), s.confusable(b, a, .{}, .{ bb, ba }));
+    // A text meets its own level, and no stricter one unless it is that one.
+    const level = s.restrictionLevel(a);
+    try std.testing.expect(!s.check(a, level).restriction_level);
+    try std.testing.expectEqual(level == .unrestricted, s.check(a, .ascii_only).restricted);
+}
+
+test "skeletons of any text are NFD without ignorables, confusability is reflexive and symmetric, a text meets its own level" {
+    try shakedown.check(std.testing.allocator, {}, security, .{ .cases = 2000 });
 }

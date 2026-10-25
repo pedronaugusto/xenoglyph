@@ -19,6 +19,7 @@ pub const punycode = @import("punycode.zig");
 pub const bidi = @import("bidi.zig");
 pub const encoding = @import("encoding.zig");
 pub const collation = @import("collation.zig");
+pub const security = @import("security.zig");
 
 /// A number of bytes: a length, or an offset into a text.
 pub const Bytes = domains.Bytes;

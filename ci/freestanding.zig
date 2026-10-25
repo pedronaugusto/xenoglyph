@@ -115,3 +115,13 @@ export fn xenoglyphCollation(a: [*]const u8, a_len: usize, b: [*]const u8, b_len
     xenoglyph.collation.sortKey(a[0..a_len], &w, .{ .case_level = true, .case_first = .upper }) catch return -1;
     return @as(isize, @backingInt(order)) * 1000 + @as(isize, @intCast(w.buffered().len));
 }
+
+export fn xenoglyphSecurity(a: [*]const u8, a_len: usize, b: [*]const u8, b_len: usize) isize {
+    const security = xenoglyph.security;
+    // Logical skeletons need no buffers; the checks and level read the first text.
+    const class = security.confusable(a[0..a_len], b[0..b_len], .{ .direction = .logical }, .{ .{}, .{} });
+    const failed = security.check(a[0..a_len], .highly_restrictive);
+    const level = security.restrictionLevel(b[0..b_len]);
+    const confusable: isize = if (class) |c| @as(isize, @backingInt(c)) + 1 else 0;
+    return confusable * 1000 + @as(isize, @as(u8, @bitCast(failed))) * 10 + @as(isize, @backingInt(level));
+}

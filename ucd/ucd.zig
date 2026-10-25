@@ -38,6 +38,8 @@ pub const collation_test_non_ignorable = @embedFile("uca/CollationTest_CLDR_NON_
 pub const collation_test_shifted = @embedFile("uca/CollationTest_CLDR_SHIFTED_SHORT.txt");
 /// The digests of ICU4C's root collator sorting the interop strings under every option set (the header of digests.txt says how they were written).
 pub const collation_icu4c_digests = @embedFile("uca/icu4c/digests.txt");
+/// The digests of ICU4C's spoof checker on the UTS #39 interop inputs (the header of digests.txt says how they were written).
+pub const security_icu4c_digests = @embedFile("security/icu4c/digests.txt");
 
 /// The digests of encoding_rs 0.8.42 decoding and encoding the interop inputs (the header of digests.txt says how they were written).
 pub const encoding_rs_digests = @embedFile("whatwg/encoding_rs/digests.txt");

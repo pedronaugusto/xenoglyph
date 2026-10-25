@@ -70,6 +70,13 @@
         "xenoglyph"
       ]
     },
+    "zig build docs -- security": {
+      "source": "examples/usage.zig",
+      "region": "security",
+      "imports": [
+        "xenoglyph"
+      ]
+    },
     "zig build docs -- lines": {
       "source": "examples/usage.zig",
       "region": "lines",
