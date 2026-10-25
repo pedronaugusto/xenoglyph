@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-10-25
+
 ### Added
 
 - `bidi`: the Unicode Bidirectional Algorithm (UAX #9) for a layout engine. `bidi.Paragraph.resolve` resolves a paragraph's embedding levels, given or auto-detected direction, into a level for every byte of the caller's UTF-8 text; `Paragraph.runs` gives its level runs, and `Paragraph.line` reorders a line the engine has broken (L1 per line, then L2) into runs in visual order, whose `visual()` gives each code point's offset in display order. Every offset is a byte offset into the text, as `lines` and `graphemes` give them; nothing is allocated: the caller gives a level and a 4-byte slot a byte. `bidi.mirror` (Bidi_Mirroring_Glyph) and `bidi.pairedBracket` (Bidi_Paired_Bracket and its type), from BidiMirroring.txt and BidiBrackets.txt. `bidi.resolveClasses` and `bidi.reorderClasses` run the same algorithm on classes alone. BidiTest.txt and BidiCharacterTest.txt pass in full.
