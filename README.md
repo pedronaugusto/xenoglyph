@@ -638,7 +638,7 @@ Shift_JIS. Every encoding decodes and encodes as encoding_rs 0.8.42 does over
 every input of one and two bytes, the longer ones each decoder reads (UTF-8's
 three- and four-byte sequences, gb18030's four-byte space, EUC-JP's JIS X 0212
 triples, ISO-2022-JP's escapes, UTF-16's surrogates) and every scalar value,
-checked by digests `bench/rivals/encoding_rs` writes. Every label in
+checked by digests of encoding_rs's output (`ucd/whatwg/encoding_rs/digests.txt`). Every label in
 `encodings.json` names its encoding, in any case and
 with any whitespace around it, and CP437 takes all 256 bytes there and back.
 `utf8.wellFormed` agrees with decoding on generated text and on every
@@ -690,9 +690,7 @@ mapping over 64 KiB texts of ASCII, accented
 Latin, CJK, Devanagari, emoji and a mix, bidi over 16 KiB paragraphs, and every
 encoding's decoder and encoder over 16 KiB of text in the language it is for
 (`bench/texts`), in ReleaseFast. Run from `zig-out/bench`, `segment`, `width`,
-`transform`, `bidi` and `encoding` print shakedown's JSON lines;
-`bench/rivals` runs the bidi rows through SheenBidi and ICU and the encoding
-rows through encoding_rs. `bay test`
+`transform`, `bidi` and `encoding` print shakedown's JSON lines. `bay test`
 runs each row once with `--smoke`; CI times nothing.
 
 ## Licence

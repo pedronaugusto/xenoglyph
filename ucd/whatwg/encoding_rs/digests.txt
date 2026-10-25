@@ -1,4 +1,4 @@
-# Written by bench/rivals/encoding_rs (`cargo run --release -- digests`) with encoding_rs 0.8.42.
+# Written by a harness outside this repository with encoding_rs 0.8.42 (`digests`).
 # Each encoding: the SHA-256 of its decoding inputs decoded, and of every scalar encoded
 # ("-" for an encoding with no encoder); src/testing/encoding_test.zig reaches the same.
 UTF-8 6b5386e825a3fed681be324df623f086c1bb92ed6ab49e2eab8d83b1a52d561a e0a7693f7362e88827c15e772e55b3490bd983f90711df7f3ef36c2b1ef6847e

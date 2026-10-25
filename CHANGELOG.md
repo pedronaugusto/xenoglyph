@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Development: the rivals' harnesses (SheenBidi and ICU for bidi, encoding_rs for the encodings) are out of the repository; `bench/` holds xenoglyph's own rows only.
+
 ## [0.4.3] - 2026-10-25
 
 ### Added

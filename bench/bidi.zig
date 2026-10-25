@@ -3,8 +3,7 @@
 //! (whole sentences, no separator) in English, Hebrew, Arabic, or the three
 //! mixed: resolving its levels, or resolving it and reordering its lines
 //! (broken at the last space before each 80 bytes, as an engine's line
-//! breaker would). bench/rivals/bidi.c runs the same rows through SheenBidi
-//! and ICU. CI compiles this and times nothing.
+//! breaker would). CI compiles this and times nothing.
 const std = @import("std");
 const xenoglyph = @import("xenoglyph");
 const shakedown = @import("shakedown");
@@ -13,7 +12,7 @@ const provenance = @import("preflight_bench_options");
 const bidi = xenoglyph.bidi;
 const WorkloadError = error{};
 
-/// The sentences each paragraph repeats; bench/rivals/bidi.c holds the same.
+/// The sentences each paragraph repeats.
 const sentences = [_][]const u8{
     "The quick brown fox jumps over the lazy dog, 42 times. ",
     "\u{5e9}\u{5dc}\u{5d5}\u{5dd} \u{5e2}\u{5d5}\u{5dc}\u{5dd}, \u{5d6}\u{5d4}\u{5d5} \u{5d8}\u{5e7}\u{5e1}\u{5d8} \u{5d1}\u{5e2}\u{5d1}\u{5e8}\u{5d9}\u{5ea} \u{5e2}\u{5dd} \u{5de}\u{5e1}\u{5e4}\u{5e8}\u{5d9}\u{5dd} 123 (\u{5db}\u{5d0}\u{5dc}\u{5d4}). ",

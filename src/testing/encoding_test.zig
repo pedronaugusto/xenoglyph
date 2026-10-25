@@ -4,7 +4,7 @@
 //! and CP437, BOM sniffing and error modes, and streaming in pieces of any
 //! size giving what one piece gives; and against encoding_rs over every input
 //! of one and two bytes (and the longer ones each decoder reads) and every
-//! scalar, by the digests bench/rivals/encoding_rs writes.
+//! scalar, by digests of encoding_rs's output (ucd/whatwg/encoding_rs/digests.txt).
 const std = @import("std");
 const ucd = @import("ucd");
 const shake = @import("shakedown");
@@ -180,7 +180,7 @@ test "any input, in pieces of any size, decodes and encodes as in one piece" {
 }
 
 /// Calls `f.input(bytes)` with each decoding input for `e`, the set
-/// bench/rivals/encoding_rs builds: every input of one and two bytes, and
+/// encoding_rs's digests were made from: every input of one and two bytes, and
 /// the longer ones each kind of decoder reads.
 fn inputs(e: Encoding, f: anytype) !void {
     for (0..256) |a| try f.input(&.{@intCast(a)});

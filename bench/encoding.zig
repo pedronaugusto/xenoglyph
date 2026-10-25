@@ -2,8 +2,8 @@
 //! [--row PREFIX]` by hand. A unit is one text of 16 KiB or a little more of
 //! UTF-8 (a sentence of bench/texts repeated) in the language each encoding
 //! is for: decoding the text's bytes in that encoding to UTF-8, or encoding
-//! the UTF-8 to it, each whole, as one call. bench/rivals/encoding_rs runs
-//! the same rows through encoding_rs. CI compiles this and times nothing.
+//! the UTF-8 to it, each whole, as one call. CI compiles this and times
+//! nothing.
 const std = @import("std");
 const xenoglyph = @import("xenoglyph");
 const shakedown = @import("shakedown");
@@ -15,8 +15,7 @@ const WorkloadError = std.Io.Writer.Error || encoding.DecodeError || encoding.En
 
 const size = 16 * 1024;
 
-/// Each text, from bench/texts, and the encodings its rows use; the rival
-/// reads the same files and lists the same rows.
+/// Each text, from bench/texts, and the encodings its rows use.
 const texts = [_]struct { name: []const u8, sentence: []const u8, encodings: []const Encoding }{
     .{ .name = "latin", .sentence = @embedFile("texts/latin.txt"), .encodings = &.{ .windows_1252, .iso_8859_15 } },
     .{ .name = "central", .sentence = @embedFile("texts/central.txt"), .encodings = &.{ .windows_1250, .iso_8859_2 } },
