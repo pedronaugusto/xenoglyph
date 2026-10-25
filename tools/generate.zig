@@ -17,6 +17,7 @@ const classes = @import("classes");
 const mappings = @import("mappings.zig");
 const idna = @import("idna.zig");
 const bidi = @import("bidi.zig");
+const encoding = @import("encoding.zig");
 
 const Allocator = std.mem.Allocator;
 pub const code_points = 0x110000;
@@ -113,6 +114,7 @@ fn generate(gpa: Allocator, ucd: Ucd) ![]const File {
     try files.append(gpa, .{ .name = "casing.zig", .bytes = try mappings.caseFile(gpa, ucd, p, ud) });
     try files.append(gpa, .{ .name = "idna.zig", .bytes = try idna.idnaFile(gpa, ucd, aliases, p, ud) });
     try files.append(gpa, .{ .name = "bidi.zig", .bytes = try bidi.bidiFile(gpa, ucd, ud) });
+    try files.append(gpa, .{ .name = "encoding.zig", .bytes = try encoding.encodingFile(gpa, ucd) });
     for (files.items) |*file| file.bytes = try formatted(gpa, file.name, file.bytes);
     return files.toOwnedSlice(gpa);
 }
@@ -501,7 +503,7 @@ fn dedup(gpa: Allocator, values: []const u32, shift: u5) !struct { index: []cons
     return .{ .index = try index.toOwnedSlice(gpa), .blocks = try blocks.toOwnedSlice(gpa) };
 }
 
-fn typeFor(bytes: usize) []const u8 {
+pub fn typeFor(bytes: usize) []const u8 {
     return if (bytes == 1) "u8" else "u16";
 }
 

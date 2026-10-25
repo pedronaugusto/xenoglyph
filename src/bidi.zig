@@ -664,13 +664,6 @@ fn Context(comptime Source: type) type {
             return null;
         }
 
-        fn prev(c: *const Self, p: usize) ?usize {
-            if (c.before(p)) |q| if (c.levels[q] == c.levels[p]) return q;
-            const s = c.slots[p];
-            if (s.kind == .pdi and s.link != Scratch.none) return s.link;
-            return null;
-        }
-
         /// Every isolating run sequence, each resolved by rules W1 to N2: one
         /// starts at each level run's first position, unless that is a
         /// matched PDI, which continues its initiator's.
