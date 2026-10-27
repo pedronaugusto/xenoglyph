@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Pins aegis 0.2.1, the 0.2 line: `SecretBytes` holds no allocator.
+
 ## [0.5.0] - 2026-10-25
 
 ### Breaking
