@@ -168,11 +168,35 @@ fn pieces(_: void, c: *shake.Case) !void {
     try en.encode("", true, &out2.writer);
     try std.testing.expectEqualSlices(u8, encoded, out2.written());
     // Text with no reference in it decodes back from what it encoded to,
-    // where the encoder needed none (html mode leaves `&#` in the text).
-    if (std.mem.find(u8, encoded, "&#") == null and std.mem.find(u8, whole, "\u{fffd}") == null) {
+    // where the encoder needed none (html mode leaves `&#` in the text) and
+    // kept every scalar: ISO-2022-JP writes half-width katakana full-width.
+    if (std.mem.find(u8, encoded, "&#") == null and std.mem.find(u8, whole, "\u{fffd}") == null and
+        !(enc == .iso_2022_jp and halfwidthKatakana(whole)))
+    {
         const back = try decodeAll(c.gpa, enc, encoded, .{ .bom = .none });
         try std.testing.expectEqualSlices(u8, whole, back);
     }
+}
+
+/// Whether `text`, checked UTF-8, holds a half-width katakana, U+FF61 to U+FF9F.
+fn halfwidthKatakana(text: []const u8) bool {
+    var it = std.unicode.Utf8View.initUnchecked(text).iterator();
+    while (it.nextCodepoint()) |cp| if (cp >= 0xff61 and cp <= 0xff9f) return true;
+    return false;
+}
+
+test "ISO-2022-JP reads half-width katakana and writes it full-width, as the standard's encoder does" {
+    const gpa = std.testing.allocator;
+    // The nightly's case (seed 1314924917): U+FF9C, encoded, reads back U+30EF.
+    const text = try decodeAll(gpa, .iso_2022_jp, "\x1b(I\x5c", .{});
+    defer gpa.free(text);
+    try std.testing.expectEqualStrings("\u{ff9c}", text);
+    const encoded = try encodeAll(gpa, .iso_2022_jp, text, .{});
+    defer gpa.free(encoded);
+    try std.testing.expectEqualStrings("\x1b$B%o\x1b(B", encoded);
+    const back = try decodeAll(gpa, .iso_2022_jp, encoded, .{});
+    defer gpa.free(back);
+    try std.testing.expectEqualStrings("\u{30ef}", back);
 }
 
 test "any input, in pieces of any size, decodes and encodes as in one piece" {
