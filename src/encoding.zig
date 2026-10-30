@@ -168,13 +168,13 @@ const Out = struct {
             o.dest[o.len] = @intCast(cp);
             o.len += 1;
         } else if (cp < 0x800) {
-            o.dest[o.len..][0..2].* = .{ @intCast(0xc0 | cp >> 6), @intCast(0x80 | (cp & 0x3f)) };
+            o.dest[o.len..][0..2].* = .{ @intCast(0xc0 | (cp >> 6)), @intCast(0x80 | (cp & 0x3f)) };
             o.len += 2;
         } else if (cp < 0x10000) {
-            o.dest[o.len..][0..3].* = .{ @intCast(0xe0 | cp >> 12), @intCast(0x80 | ((cp >> 6) & 0x3f)), @intCast(0x80 | (cp & 0x3f)) };
+            o.dest[o.len..][0..3].* = .{ @intCast(0xe0 | (cp >> 12)), @intCast(0x80 | ((cp >> 6) & 0x3f)), @intCast(0x80 | (cp & 0x3f)) };
             o.len += 3;
         } else {
-            o.dest[o.len..][0..4].* = .{ @intCast(0xf0 | cp >> 18), @intCast(0x80 | ((cp >> 12) & 0x3f)), @intCast(0x80 | ((cp >> 6) & 0x3f)), @intCast(0x80 | (cp & 0x3f)) };
+            o.dest[o.len..][0..4].* = .{ @intCast(0xf0 | (cp >> 18)), @intCast(0x80 | ((cp >> 12) & 0x3f)), @intCast(0x80 | ((cp >> 6) & 0x3f)), @intCast(0x80 | (cp & 0x3f)) };
             o.len += 4;
         }
     }
@@ -207,18 +207,18 @@ inline fn putUtf8(dest: *[4]u8, cp: u21) usize {
         dest[0] = @intCast(cp);
         return 1;
     } else if (cp < 0x800) {
-        dest[0..2].* = .{ @intCast(0xc0 | cp >> 6), @intCast(0x80 | (cp & 0x3f)) };
+        dest[0..2].* = .{ @intCast(0xc0 | (cp >> 6)), @intCast(0x80 | (cp & 0x3f)) };
         return 2;
     } else if (cp < 0x10000) {
-        dest[0..3].* = .{ @intCast(0xe0 | cp >> 12), @intCast(0x80 | ((cp >> 6) & 0x3f)), @intCast(0x80 | (cp & 0x3f)) };
+        dest[0..3].* = .{ @intCast(0xe0 | (cp >> 12)), @intCast(0x80 | ((cp >> 6) & 0x3f)), @intCast(0x80 | (cp & 0x3f)) };
         return 3;
     }
-    dest.* = .{ @intCast(0xf0 | cp >> 18), @intCast(0x80 | ((cp >> 12) & 0x3f)), @intCast(0x80 | ((cp >> 6) & 0x3f)), @intCast(0x80 | (cp & 0x3f)) };
+    dest.* = .{ @intCast(0xf0 | (cp >> 18)), @intCast(0x80 | ((cp >> 12) & 0x3f)), @intCast(0x80 | ((cp >> 6) & 0x3f)), @intCast(0x80 | (cp & 0x3f)) };
     return 4;
 }
 
 fn singleByte(comptime e: Encoding) bool {
-    return @backingInt(e) >= @backingInt(Encoding.ibm866) and @backingInt(e) <= @backingInt(Encoding.x_mac_cyrillic) or e == .cp437;
+    return (@backingInt(e) >= @backingInt(Encoding.ibm866) and @backingInt(e) <= @backingInt(Encoding.x_mac_cyrillic)) or e == .cp437;
 }
 
 /// Each single-byte encoding's bytes as UTF-8, packed: the bytes from the
@@ -1020,7 +1020,7 @@ pub const Decoder = struct {
             return .more;
         };
         d.utf16_lead_byte = null;
-        const unit: u16 = if (big) @as(u16, lead) << 8 | b else @as(u16, b) << 8 | lead;
+        const unit: u16 = if (big) (@as(u16, lead) << 8) | b else (@as(u16, b) << 8) | lead;
         if (d.utf16_lead_surrogate) |surrogate| {
             d.utf16_lead_surrogate = null;
             if (unit >= 0xdc00 and unit <= 0xdfff) return .{ .one = 0x10000 + (@as(u21, surrogate - 0xd800) << 10) + (unit - 0xdc00) };
@@ -1051,8 +1051,8 @@ inline fn singleByteStep(comptime e: Encoding, b: u8) Step {
 
 /// index Big5 code point for a pointer it maps.
 fn big5CodePoint(pointer: usize) u21 {
-    const plane: u21 = @intCast(tables.big5_plane_2[pointer / 64] >> @intCast(pointer % 64) & 1);
-    return plane << 17 | tables.big5[pointer];
+    const plane: u21 = @intCast((tables.big5_plane_2[pointer / 64] >> @intCast(pointer % 64)) & 1);
+    return (plane << 17) | tables.big5[pointer];
 }
 
 /// index gb18030 ranges code point.

@@ -60,8 +60,8 @@ const Element = struct {
     fn unpack(e: u32) Element {
         return .{
             .primary = e & 0xffff0000,
-            .secondary = @intCast(e >> 7 & 0x1ff),
-            .tertiary = @intCast(e >> 2 & 0x1f),
+            .secondary = @intCast((e >> 7) & 0x1ff),
+            .tertiary = @intCast((e >> 2) & 0x1f),
             .variable = e & 1 != 0,
         };
     }
@@ -200,7 +200,7 @@ const Elements = struct {
             e.pending_len = 1;
             return;
         }
-        const run = tables.elements[value >> 7 ..][0 .. value >> 2 & 0x1f];
+        const run = tables.elements[value >> 7 ..][0 .. (value >> 2) & 0x1f];
         for (run, 0..) |packed_element, k| e.pending[k] = .unpack(packed_element);
         e.pending_len = run.len;
     }
@@ -339,8 +339,8 @@ fn Weights(comptime level: Level) type {
                 else if (upper(e.tertiary) == (w.options.case_first == .upper)) 1 else 2,
                 .tertiary => if (e.tertiary == 0) 0 else switch (w.options.case_first) {
                     .off => e.tertiary,
-                    .upper => @as(u32, @intFromBool(!upper(e.tertiary))) << 5 | e.tertiary,
-                    .lower => @as(u32, @intFromBool(upper(e.tertiary))) << 5 | e.tertiary,
+                    .upper => (@as(u32, @intFromBool(!upper(e.tertiary))) << 5) | e.tertiary,
+                    .lower => (@as(u32, @intFromBool(upper(e.tertiary))) << 5) | e.tertiary,
                 },
                 .quaternary => if (e.primary == 0 and e.secondary == 0 and e.tertiary == 0) 0 else 0xffff0000,
             };

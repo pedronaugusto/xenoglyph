@@ -43,9 +43,9 @@ pub fn collationFile(gpa: Allocator, ucd: generate.Ucd, d: mappings.UnicodeData)
         if (e.elements.len > 31) return error.ExpansionTooLong;
         const starter = e.code_points.len == 1 and starts.contains(e.code_points[0]);
         if (e.elements.len == 1 and !starter) {
-            try runs.append(gpa, e.elements[0] | 1 << 1);
+            try runs.append(gpa, e.elements[0] | (1 << 1));
         } else {
-            try runs.append(gpa, @intCast(elements.items.len << 7 | e.elements.len << 2));
+            try runs.append(gpa, @intCast((elements.items.len << 7) | (e.elements.len << 2)));
             try elements.appendSlice(gpa, e.elements);
         }
     }
@@ -195,7 +195,7 @@ fn read(gpa: Allocator, text: []const u8, d: mappings.UnicodeData) ![]const Entr
             const secondary = try std.fmt.parseInt(u32, rest[7..11], 16);
             const tertiary = try std.fmt.parseInt(u32, rest[12..16], 16);
             if (secondary >= 1 << 9 or tertiary >= 1 << 5) return error.WeightTooLarge;
-            try elements.append(gpa, primary << 16 | secondary << 7 | tertiary << 2 | @intFromBool(variable));
+            try elements.append(gpa, (primary << 16) | (secondary << 7) | (tertiary << 2) | @intFromBool(variable));
             rest = generate.trim(rest[17..]);
         }
         if (elements.items.len == 0) return error.BadEntry;
