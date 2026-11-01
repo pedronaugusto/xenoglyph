@@ -9,8 +9,8 @@ const Allocator = std.mem.Allocator;
 
 /// Identifier_Type's values, in the order of `IdentifierType`'s fields.
 const types = [_][]const u8{
-    "Not_Character", "Deprecated",    "Default_Ignorable", "Not_NFKC",    "Not_XID",   "Exclusion",
-    "Obsolete",      "Technical",     "Uncommon_Use",      "Limited_Use", "Inclusion", "Recommended",
+    "Not_Character", "Deprecated", "Default_Ignorable", "Not_NFKC",    "Not_XID",   "Exclusion",
+    "Obsolete",      "Technical",  "Uncommon_Use",      "Limited_Use", "Inclusion", "Recommended",
 };
 const inclusion = 10;
 const recommended = 11;
@@ -42,9 +42,9 @@ pub fn securityFile(gpa: Allocator, ucd: generate.Ucd) ![]const u8 {
         if (target.items.len == 0 or target.items.len > 31) return error.BadConfusable;
         if (values[l.first] != 0) return error.DuplicateConfusable;
         if (target.items.len == 1) {
-            values[l.first] = @as(u32, target.items[0]) << 1 | 1;
+            values[l.first] = (@as(u32, target.items[0]) << 1) | 1;
         } else {
-            values[l.first] = @intCast(prototypes.items.len << 6 | target.items.len << 1);
+            values[l.first] = @intCast((prototypes.items.len << 6) | (target.items.len << 1));
             try prototypes.appendSlice(gpa, target.items);
         }
     }
@@ -75,7 +75,7 @@ pub fn securityFile(gpa: Allocator, ucd: generate.Ucd) ![]const u8 {
         }
         for (sets[l.first .. l.last + 1]) |*s| s.* = set;
     }
-    const allowed_mask: u32 = 1 << inclusion | 1 << recommended;
+    const allowed_mask: u32 = (1 << inclusion) | (1 << recommended);
     var allowed = try generate.filled(gpa, bool, false);
     lines = .init(try ucd.read("security/IdentifierStatus.txt"));
     while (try lines.next()) |l| {

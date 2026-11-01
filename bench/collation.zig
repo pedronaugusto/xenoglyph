@@ -115,7 +115,7 @@ fn words(gpa: std.mem.Allocator, sentence: []const u8) ![][]const u8 {
 /// that does not follow theirs.
 fn namesOf(gpa: std.mem.Allocator, from: []const []const u8) ![][]const u8 {
     const out = try gpa.alloc([]const u8, names);
-    for (out, 0..) |*name, i| name.* = try std.mem.concat(gpa, u8, &.{ from[i * 7 % from.len], " ", from[(i * 13 + 5) % from.len] });
+    for (out, 0..) |*name, i| name.* = try std.mem.concat(gpa, u8, &.{ from[(i * 7) % from.len], " ", from[(i * 13 + 5) % from.len] });
     return out;
 }
 
@@ -125,7 +125,7 @@ pub fn main(init: std.process.Init) !void {
     var c: Context = .{ .list = undefined, .work = try arena.alloc([]const u8, names), .late = undefined, .key = try arena.alloc(u8, 4096) };
     for (texts, 0..) |t, k| c.list[k] = try namesOf(arena, try words(arena, t.sentence));
     c.list[file_names] = try arena.alloc([]const u8, names);
-    for (c.list[file_names], 0..) |*name, i| name.* = try arena.print("file{d}.txt", .{i * 7919 % 100_000});
+    for (c.list[file_names], 0..) |*name, i| name.* = try arena.print("file{d}.txt", .{(i * 7919) % 100_000});
     var text: std.ArrayList(u8) = .empty;
     while (text.items.len < size) try text.appendSlice(arena, texts[0].sentence);
     try text.appendSlice(arena, "e");

@@ -121,7 +121,7 @@ fn words(gpa: std.mem.Allocator, sentence: []const u8) ![][]const u8 {
 /// that does not follow theirs.
 fn identifiersOf(gpa: std.mem.Allocator, from: []const []const u8) ![][]const u8 {
     const out = try gpa.alloc([]const u8, identifiers);
-    for (out, 0..) |*name, i| name.* = try std.mem.concat(gpa, u8, &.{ from[i * 7 % from.len], "_", from[(i * 13 + 5) % from.len] });
+    for (out, 0..) |*name, i| name.* = try std.mem.concat(gpa, u8, &.{ from[(i * 7) % from.len], "_", from[(i * 13 + 5) % from.len] });
     return out;
 }
 

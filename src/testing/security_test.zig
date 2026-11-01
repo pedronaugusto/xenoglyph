@@ -207,7 +207,7 @@ fn pairs(gpa: std.mem.Allocator, seed: u64, count: usize, groups: []const []cons
         kinds.confusable.update(&.{c});
         kinds.restriction.update(&.{@backingInt(security.restrictionLevel(a.items))});
         const f = security.check(a.items, .ascii_only);
-        const x: u8 = @as(u8, @intFromBool(f.restricted)) | @as(u8, @intFromBool(f.mixed_numbers)) << 1 | @as(u8, @intFromBool(f.repeated_mark)) << 2 | @as(u8, @intFromBool(f.hidden_overlay)) << 3;
+        const x: u8 = @as(u8, @intFromBool(f.restricted)) | (@as(u8, @intFromBool(f.mixed_numbers)) << 1) | (@as(u8, @intFromBool(f.repeated_mark)) << 2) | (@as(u8, @intFromBool(f.hidden_overlay)) << 3);
         kinds.checks.update(&.{x});
     }
     return kinds;

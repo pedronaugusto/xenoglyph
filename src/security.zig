@@ -332,7 +332,7 @@ const Prototype = struct {
         const value = tables.confusables.get(cp);
         if (value == 0) return .{ .one = cp, .len = 1 };
         if (value & 1 != 0) return .{ .one = @intCast(value >> 1), .len = 1 };
-        return .{ .start = value >> 6, .len = @intCast(value >> 1 & 0x1f) };
+        return .{ .start = value >> 6, .len = @intCast((value >> 1) & 0x1f) };
     }
 
     fn at(p: Prototype, i: u8) u21 {
