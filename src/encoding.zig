@@ -389,7 +389,7 @@ pub const Decoder = struct {
         var k = bytes.len;
         while (k > 0) {
             k -= 1;
-            aegis.assert.pre(d.queued < d.queue.len, "a decoder puts back at most three bytes at a time");
+            aegis.assert.invariant(d.queued < d.queue.len, "a decoder puts back at most three bytes at a time");
             d.queue[d.queued] = bytes[k];
             d.queued += 1;
         }

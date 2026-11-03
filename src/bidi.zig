@@ -103,7 +103,7 @@ pub const Paragraph = struct {
     /// of the text. The next starts at `paragraph.span.end`.
     pub fn resolve(text: []const u8, start: Bytes, options: Options, buffers: Buffers) Paragraph {
         const from = start.raw();
-        aegis.assert.pre(from <= text.len, "a paragraph starts inside its text");
+        aegis.assert.invariant(from <= text.len, "a paragraph starts inside its text");
         const room = @min(text.len - from, buffers.levels.len, buffers.scratch.len, max_paragraph);
         const source: Text = .{ .bytes = text[from..] };
         const resolved = resolveIn(source, buffers.levels[0..room], buffers.scratch[0..room], options, .paragraph);
@@ -118,7 +118,7 @@ pub const Paragraph = struct {
     pub fn levelAt(p: *const Paragraph, offset: Bytes) Level {
         const at = offset.raw();
         const base = p.span.start.raw();
-        aegis.assert.pre(at >= base and at - base < p.levels.len, "the offset is inside the paragraph");
+        aegis.assert.invariant(at >= base and at - base < p.levels.len, "the offset is inside the paragraph");
         return p.levels[at - base];
     }
 
@@ -135,7 +135,7 @@ pub const Paragraph = struct {
         const base = p.span.start.raw();
         const from = span.start.raw();
         const to = span.end.raw();
-        aegis.assert.pre(from >= base and from <= to and to - base <= p.levels.len, "the line is inside the paragraph");
+        aegis.assert.invariant(from >= base and from <= to and to - base <= p.levels.len, "the line is inside the paragraph");
         const source: Text = .{ .bytes = p.span.of(p.text) };
         const n = reorder(source, p.levels, from - base, to - base, p.level, buffer);
         for (buffer[0..n]) |*r| r.span = shifted(r.span, base);
@@ -253,7 +253,7 @@ fn bracketOf(cp: u21) ?data.bidi.Bracket {
 /// Returns the paragraph embedding level; `levels` holds each character's,
 /// a removed one's being the level before it.
 pub fn resolveClasses(classes: []const BidiClass, options: Options, buffers: Buffers) Level {
-    aegis.assert.pre(classes.len <= max_paragraph and buffers.levels.len >= classes.len and buffers.scratch.len >= classes.len, "the buffers hold a level and a slot for each class");
+    aegis.assert.invariant(classes.len <= max_paragraph and buffers.levels.len >= classes.len and buffers.scratch.len >= classes.len, "the buffers hold a level and a slot for each class");
     return resolveIn(Classes{ .list = classes }, buffers.levels[0..classes.len], buffers.scratch[0..classes.len], options, .whole).level;
 }
 
@@ -422,7 +422,7 @@ fn classify(source: anytype, slots: []Scratch, comptime extent: Extent) struct {
     var i: usize = 0;
     while (i < source.len()) {
         const c = source.at(i);
-        aegis.assert.pre(i + c.len <= limit, "the buffers hold a level and a slot for each byte of the paragraph");
+        aegis.assert.invariant(i + c.len <= limit, "the buffers hold a level and a slot for each byte of the paragraph");
         seen |= @as(u32, 1) << @backingInt(c.class);
         const alone = switch (c.class) {
             .boundary_neutral => {
@@ -467,7 +467,7 @@ fn classify(source: anytype, slots: []Scratch, comptime extent: Extent) struct {
         if (extent == .paragraph and c.class == .paragraph_separator) {
             // A CR LF pair is one separator.
             if (source.byte(i - 1) == '\r' and i < source.len() and source.byte(i) == '\n') {
-                aegis.assert.pre(i < limit, "the buffers hold a level and a slot for each byte of the paragraph");
+                aegis.assert.invariant(i < limit, "the buffers hold a level and a slot for each byte of the paragraph");
                 slots[i] = inside;
                 i += 1;
             }
@@ -1026,7 +1026,7 @@ const Runs = struct {
             r.buffer[r.len - 1].span.end = .fromRaw(to);
             return;
         }
-        aegis.assert.pre(r.len < r.buffer.len, "the run buffer holds a run for each code point of the line");
+        aegis.assert.invariant(r.len < r.buffer.len, "the run buffer holds a run for each code point of the line");
         r.buffer[r.len] = .{ .span = .fromRaw(from, to), .level = level };
         r.len += 1;
     }

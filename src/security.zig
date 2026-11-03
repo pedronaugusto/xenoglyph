@@ -358,7 +358,7 @@ fn reorders(text: []const u8) bool {
 /// The runs of `text` in visual order, each paragraph shown as one line
 /// (UAX #9 up to L2), in `buffers.runs`.
 fn visualRuns(text: []const u8, direction: Direction, buffers: Buffers) []const bidi.Run {
-    aegis.assert.pre(buffers.levels.len >= text.len and buffers.scratch.len >= text.len and buffers.runs.len >= text.len, "a skeleton in display order has buffers as long as its text");
+    aegis.assert.invariant(buffers.levels.len >= text.len and buffers.scratch.len >= text.len and buffers.runs.len >= text.len, "a skeleton in display order has buffers as long as its text");
     const options: bidi.Options = .{ .direction = switch (direction) {
         .ltr => .ltr,
         .rtl => .rtl,
@@ -590,7 +590,7 @@ pub const Confusability = enum { single_script, mixed_script, whole_script };
 /// Whether `a` and `b` are confusable (their skeletons are equal), and how;
 /// `buffers` one for each, as `skeleton` takes them.
 pub fn confusable(a: []const u8, b: []const u8, options: Options, buffers: [2]Buffers) ?Confusability {
-    aegis.assert.pre(buffers[0].runs.len == 0 or buffers[0].runs.ptr != buffers[1].runs.ptr, "the two texts' skeletons have buffers of their own");
+    aegis.assert.invariant(buffers[0].runs.len == 0 or buffers[0].runs.ptr != buffers[1].runs.ptr, "the two texts' skeletons have buffers of their own");
     var ka: Skeleton = .init(a, options, buffers[0]);
     var kb: Skeleton = .init(b, options, buffers[1]);
     while (true) {

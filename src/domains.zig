@@ -26,7 +26,7 @@ pub const Span = struct {
 
     /// A span from raw offsets, `start` at most `end`.
     pub fn fromRaw(start: usize, end: usize) Span {
-        aegis.assert.pre(start <= end, "a span ends where it starts or after");
+        aegis.assert.invariant(start <= end, "a span ends where it starts or after");
         return .{ .start = .fromRaw(start), .end = .fromRaw(end) };
     }
 };

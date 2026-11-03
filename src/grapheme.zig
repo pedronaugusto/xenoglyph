@@ -422,7 +422,7 @@ pub fn Iterator(comptime rules: Rules) type {
         /// cluster started or ended. The clusters after a boundary are the
         /// same whatever came before it.
         pub fn initAt(bytes: []const u8, at: domains.Bytes) Self {
-            aegis.assert.pre(at.compare(.fromRaw(bytes.len)) != .gt, "the offset is within the text");
+            aegis.assert.invariant(at.compare(.fromRaw(bytes.len)) != .gt, "the offset is within the text");
             return .{ .bytes = bytes, .at = at.raw() };
         }
 
@@ -512,14 +512,14 @@ pub fn iterate(bytes: []const u8) Iterator(.{}) {
 /// over many clusters is linear with `Iterator.prev`, which knows it stands
 /// on a boundary and so counts a run of regional indicators once.
 pub fn boundaryBefore(bytes: []const u8, offset: domains.Bytes, comptime rules: Rules) domains.Bytes {
-    aegis.assert.pre(offset.compare(.fromRaw(0)) == .gt and offset.compare(.fromRaw(bytes.len)) != .gt, "a boundary before the offset exists");
+    aegis.assert.invariant(offset.compare(.fromRaw(0)) == .gt and offset.compare(.fromRaw(bytes.len)) != .gt, "a boundary before the offset exists");
     return .fromRaw(Reverse(rules).start(bytes, offset.raw(), false));
 }
 
 /// The end of the cluster that starts at `start`, which must be a boundary
 /// before the end of `bytes`. A cursor's step right.
 pub fn boundaryAfter(bytes: []const u8, start: domains.Bytes, comptime rules: Rules) domains.Bytes {
-    aegis.assert.pre(start.compare(.fromRaw(bytes.len)) == .lt, "a cluster starts at the offset");
+    aegis.assert.invariant(start.compare(.fromRaw(bytes.len)) == .lt, "a cluster starts at the offset");
     var it: Iterator(rules) = .initAt(bytes, start);
     return (it.nextSpan() orelse aegis.assert.never("a cluster starts before the end")).end;
 }
