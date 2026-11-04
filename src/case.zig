@@ -117,7 +117,7 @@ fn folded(cp: u21, r: classes.Case, language: Language, buffer: *[3]u21) []const
 }
 
 /// What the casing contexts read behind a position, carried forward.
-const Behind = struct {
+pub const Behind = struct {
     /// Final_Sigma: a cased letter, then case-ignorables.
     cased: bool = false,
     /// After_Soft_Dotted: a Soft_Dotted character, then no character of
@@ -346,13 +346,9 @@ fn Mapped(comptime match: Match) type {
         at: usize = 0,
         /// Private: the current code point's canonical decomposition, and
         /// the next code point of it to map.
-        raw: [18]u21 = undefined,
-        raw_len: u8 = 0,
-        raw_index: u8 = 0,
+        raw: Queue = .{},
         /// Private: the mapping being given out.
-        out: [18]u21 = undefined,
-        len: u8 = 0,
-        index: u8 = 0,
+        out: Queue = .{},
         /// Private: what the held non-starters map to, and how many are
         /// held until their run ends.
         held: [18]u21 = undefined,
@@ -379,8 +375,8 @@ fn Mapped(comptime match: Match) type {
         }
 
         pub fn next(s: *Self) ?u21 {
-            while (s.index == s.len) {
-                if (s.raw_index == s.raw_len) {
+            while (s.out.done()) {
+                if (s.raw.done()) {
                     if (s.at >= s.bytes.len) {
                         if (s.held_count == 0) return null;
                         s.release();
@@ -388,30 +384,25 @@ fn Mapped(comptime match: Match) type {
                     }
                     const d = utf8.decode(s.bytes[s.at..]);
                     s.at += d.len;
-                    s.raw_len = length(normalize.decompose(d.code_point, .nfd, &s.raw).len);
-                    s.raw_index = 0;
+                    s.raw.give(normalize.decompose(d.code_point, .nfd, &s.raw.items).len);
                 }
-                const cp = s.raw[s.raw_index];
+                const cp = s.raw.peek();
                 const class = normalize.combiningClass(cp);
                 // A starter ends the run: what was held goes before it.
                 if (class == 0 and s.held_count > 0) {
                     s.release();
                     continue;
                 }
-                s.raw_index += 1;
+                _ = s.raw.take();
                 const image = s.map(cp);
-                s.index = 0;
-                s.len = length(image.len);
+                s.out.give(image.len);
                 if (class != 0) for (image) |m| if (normalize.combiningClass(m) != class) {
                     s.hold(image);
                     break;
                 };
             }
-            defer {
-                s.index += 1;
-                s.given += 1;
-            }
-            return s.out[s.index];
+            s.given += 1;
+            return s.out.take();
         }
 
         /// `cp` mapped and decomposed, in `out`.
@@ -423,12 +414,12 @@ fn Mapped(comptime match: Match) type {
                     for (folded(cp, record(cp), s.language, &buffer)) |f| {
                         var decomposed: [18]u21 = undefined;
                         const d = normalize.decompose(f, .nfd, &decomposed);
-                        @memcpy(s.out[len..][0..d.len], d);
+                        @memcpy(s.out.items[len..][0..d.len], d);
                         len += d.len;
                     }
-                    return s.out[0..len];
+                    return s.out.items[0..len];
                 },
-                .identifier => return normalize.decompose(cp, .nfkc_casefold, &s.out),
+                .identifier => return normalize.decompose(cp, .nfkc_casefold, &s.out.items),
                 .default => comptime unreachable, // unreachable: `.default` reads no decomposition
             }
         }
@@ -440,13 +431,12 @@ fn Mapped(comptime match: Match) type {
                 s.held_len = length(image.len);
             } else aegis.assert.invariant(std.mem.eql(u21, s.held[0..s.held_len], image), "the non-starters held map alike");
             s.held_count += 1;
-            s.len = 0;
+            s.out.give(0);
         }
 
         fn release(s: *Self) void {
-            @memcpy(s.out[0..s.held_len], s.held[0..s.held_len]);
-            s.len = s.held_len;
-            s.index = 0;
+            @memcpy(s.out.items[0..s.held_len], s.held[0..s.held_len]);
+            s.out.give(s.held_len);
             s.held_count -= 1;
         }
 
@@ -455,6 +445,37 @@ fn Mapped(comptime match: Match) type {
         }
     };
 }
+
+/// A decomposition or a mapping, at most 18 code points, given out one at a
+/// time: each with its own place, so one is never read at the other's.
+pub const Queue = struct {
+    /// What it gives out, written from the start before `give`.
+    items: [18]u21 = undefined,
+    len: u8 = 0,
+    at: u8 = 0,
+
+    /// Whether everything it holds was given out.
+    fn done(q: *const Queue) bool {
+        return q.at == q.len;
+    }
+
+    /// Gives out the first `n` items, from the first.
+    fn give(q: *Queue, n: usize) void {
+        q.len = aegis.int.narrow(u8, n) orelse aegis.assert.never("a mapping is at most 18 code points");
+        q.at = 0;
+    }
+
+    /// The next item, still to give out.
+    fn peek(q: *const Queue) u21 {
+        return q.items[q.at];
+    }
+
+    /// The next item, given out.
+    fn take(q: *Queue) u21 {
+        defer q.at += 1;
+        return q.items[q.at];
+    }
+};
 
 fn expectMapped(comptime mapping: Mapping, input: []const u8, want: []const u8, options: Options) !void {
     var out: [64]u8 = undefined;

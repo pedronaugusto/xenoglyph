@@ -74,7 +74,9 @@ pub fn Canonical(comptime Source: type, comptime composes: bool) type {
         /// given out a combining class at a time.
         long: ?Long = null,
 
-        const Long = struct {
+        /// A run of non-starters too long for the buffer, given out a
+        /// combining class at a time.
+        pub const Long = struct {
             /// Where the run's non-starters start and where they end.
             marks: Position,
             end: Position,

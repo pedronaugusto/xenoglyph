@@ -99,10 +99,10 @@ fn segmentsWith(comptime rules: grapheme.Rules, bytes: []const u8) !void {
     try expectBackward(rules, bytes, ends.items);
     // Measured whole, each cluster is 0 to 2 columns, and the string's
     // columns are their sum.
-    var total: usize = 0;
+    var total: width.Columns = .fromRaw(0);
     var again: grapheme.Iterator(rules) = .init(bytes);
-    while (again.next()) |g| total += width.cluster(g, .{}).raw();
-    try std.testing.expectEqual(total, width.string(bytes, .{ .rules = rules }).raw());
+    while (again.next()) |g| total = try total.add(width.cluster(g, .{}));
+    try std.testing.expectEqual(total, width.string(bytes, .{ .rules = rules }));
 }
 
 /// Read backward, a text's clusters are the ones read forward (`ends`, the
@@ -241,14 +241,14 @@ test "graphemes, words, sentences and lines of any text are the rules read liter
 fn widths(_: void, case: *shakedown.Case) anyerror!void {
     const bytes = try text(case);
     var d: utf8.Iterator = .init(bytes);
-    var sum: usize = 0;
-    var wide: usize = 0;
+    var sum: width.Columns = .fromRaw(0);
+    var wide: width.Columns = .fromRaw(0);
     while (d.next()) |cp| {
-        sum += width.codepoint(cp, .{}).raw();
-        wide += width.codepoint(cp, .{ .ambiguous = .wide }).raw();
+        sum = try sum.add(width.codepoint(cp, .{}));
+        wide = try wide.add(width.codepoint(cp, .{ .ambiguous = .wide }));
     }
-    try std.testing.expectEqual(sum, width.string(bytes, .{ .method = .codepoint }).raw());
-    try std.testing.expectEqual(wide, width.string(bytes, .{ .method = .codepoint, .ambiguous = .wide }).raw());
+    try std.testing.expectEqual(sum, width.string(bytes, .{ .method = .codepoint }));
+    try std.testing.expectEqual(wide, width.string(bytes, .{ .method = .codepoint, .ambiguous = .wide }));
     try std.testing.expect(width.string(bytes, .{}).compare(width.string(bytes, .{ .ambiguous = .wide })) != .gt);
 }
 

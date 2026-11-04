@@ -20,10 +20,13 @@ pub const Encoding = classes.Encoding;
 /// the standard and is named by its value alone.
 pub fn forLabel(label: []const u8) ?Encoding {
     const trimmed = std.mem.trim(u8, label, "\t\n\x0c\r ");
-    var lower: [32]u8 = undefined;
-    if (trimmed.len > lower.len) return null;
-    for (trimmed, 0..) |c, i| lower[i] = std.ascii.toLower(c);
-    const key = lower[0..trimmed.len];
+    // No label is longer: a longer one names nothing.
+    var lower: aegis.bounded.Array(u8, 32) = .init;
+    for (trimmed) |c| {
+        var byte = std.ascii.toLower(c);
+        lower.append(&byte) catch return null;
+    }
+    const key = lower.constItems();
     var low: usize = 0;
     var high: usize = tables.labels.len;
     while (low < high) {
@@ -257,7 +260,7 @@ const Iso2022 = enum(u3) { ascii, roman, katakana, lead_byte, trail_byte, escape
 /// trail byte of JIS X 0208, the byte after ESC that an escape sequence
 /// goes on with, and the four states an escape designates (or that a failed
 /// one goes back to).
-const Iso2022Event = enum(u3) { escape, lead, trail, intermediate, ascii, roman, katakana, jis0208 };
+pub const Iso2022Event = enum(u3) { escape, lead, trail, intermediate, ascii, roman, katakana, jis0208 };
 
 /// The standard's ISO-2022-JP decoder, its every transition declared.
 const Iso2022Machine = aegis.state.Machine(Iso2022, Iso2022Event, .{ .initial = .ascii, .edges = &.{
@@ -1087,7 +1090,9 @@ fn rangesPointer(cp: u21) u32 {
 // ---------------------------------------------------------------------------
 // Encoding
 
-const IsoEncode = enum(u2) { ascii, roman, jis0208 };
+/// Where an ISO-2022-JP encoder is: the character set its last escape
+/// switched to.
+pub const IsoEncode = enum(u2) { ascii, roman, jis0208 };
 
 /// Up to four bytes an encoder step writes, or what it cannot encode.
 const Bytes = struct {
@@ -1119,8 +1124,7 @@ pub const Encoder = struct {
     /// before it.
     consumed: u64 = 0,
     /// The start of a code point the last piece ended in.
-    held: [4]u8 = undefined,
-    held_len: u3 = 0,
+    held: aegis.bounded.Array(u8, 4) = .init,
     iso: IsoEncode = .ascii,
 
     /// An encoder of `encoding`; replacement, which encodes nothing, is
@@ -1147,27 +1151,23 @@ pub const Encoder = struct {
     fn run(e: *Encoder, comptime enc: Encoding, input: []const u8, last: bool, out: *Out) EncodeError!void {
         var i: usize = 0;
         // A code point the last piece began, completed from this one.
-        if (e.held_len != 0) {
-            var joined: [4]u8 = undefined;
-            const kept = e.held_len;
-            @memcpy(joined[0..kept], e.held[0..kept]);
-            var have: usize = kept;
+        if (e.held.len() != 0) {
+            var joined = e.held;
+            const kept = joined.len();
             var taken: usize = 0;
-            while (have < 4 and taken < input.len and incomplete(joined[0..have])) {
-                joined[have] = input[taken];
-                have += 1;
-                taken += 1;
+            while (!joined.isFull() and taken < input.len and incomplete(joined.constItems())) : (taken += 1) {
+                var byte = input[taken];
+                joined.append(&byte) catch aegis.assert.never("a code point not yet full has room for its next byte");
             }
-            if (!last and incomplete(joined[0..have])) {
-                @memcpy(e.held[0..have], joined[0..have]);
-                e.held_len = @intCast(have);
+            if (!last and incomplete(joined.constItems())) {
+                e.held = joined;
                 e.consumed += taken;
                 return;
             }
-            e.held_len = 0;
-            const got = utf8.decode(joined[0..have]);
+            e.held = .init;
+            const got = utf8.decode(joined.constItems());
             if (enc == .utf_8) {
-                try out.bytes(if (got.code_point == utf8.replacement) "\xef\xbf\xbd" else joined[0..got.len]);
+                try out.bytes(if (got.code_point == utf8.replacement) "\xef\xbf\xbd" else joined.constItems()[0..got.len]);
             } else try e.codePoint(enc, got.code_point, out);
             i = got.len - kept;
             e.consumed += i;
@@ -1181,8 +1181,7 @@ pub const Encoder = struct {
             const got = utf8.decode(rest);
             if (!last and got.code_point == utf8.replacement and got.len == rest.len and rest.len < 4 and incomplete(rest)) {
                 // A code point the next piece completes.
-                @memcpy(e.held[0..rest.len], rest);
-                e.held_len = @intCast(rest.len);
+                e.held = .fromSlice(rest) catch aegis.assert.never("an incomplete code point is under four bytes");
                 e.consumed += rest.len;
                 return;
             }
@@ -1296,18 +1295,11 @@ pub const Encoder = struct {
                     e.unmappable = reported;
                     return error.Unmappable;
                 }
-                var digits: [7]u8 = undefined;
-                var at: usize = digits.len;
-                var rest: u21 = reported;
-                while (true) {
-                    at -= 1;
-                    digits[at] = @intCast('0' + rest % 10);
-                    rest /= 10;
-                    if (rest == 0) break;
-                }
+                var buffer: [7]u8 = undefined;
+                const digits = std.fmt.bufPrint(&buffer, "{d}", .{reported}) catch aegis.assert.never("a code point is at most seven decimal digits");
                 try e.codePoint(enc, '&', out);
                 try e.codePoint(enc, '#', out);
-                for (digits[at..]) |c| try e.codePoint(enc, c, out);
+                for (digits) |c| try e.codePoint(enc, c, out);
                 try e.codePoint(enc, ';', out);
                 return;
             }

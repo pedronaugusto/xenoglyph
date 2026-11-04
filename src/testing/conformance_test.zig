@@ -118,9 +118,9 @@ fn expectBackward(comptime rules: grapheme.Rules, c: *const Case, want: []const 
             while (j > 0 and !want[j]) j -= 1;
             last = c.offsets[j];
         }
-        const got = grapheme.boundaryBefore(text, .fromRaw(offset), rules).raw();
-        if (got != last) {
-            std.debug.print("line {d}: boundaryBefore({d}) = {d}, want {d}\n", .{ line, offset, got, last });
+        const got = grapheme.boundaryBefore(text, .fromRaw(offset), rules);
+        if (!got.eql(.fromRaw(last))) {
+            std.debug.print("line {d}: boundaryBefore({d}) = {d}, want {d}\n", .{ line, offset, got.raw(), last });
             return error.TestUnexpectedResult;
         }
     }

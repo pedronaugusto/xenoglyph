@@ -11,14 +11,12 @@ const WorkloadError = error{};
 
 const Context = struct {
     texts: [@typeInfo(corpus.Kind).@"enum".field_names.len][]const u8,
-    columns: usize = 0,
 
     fn string(comptime kind: corpus.Kind, comptime options: xenoglyph.width.Options) fn (*Context, u64) WorkloadError!void {
         return struct {
             fn run(c: *Context, units: u64) WorkloadError!void {
                 for (0..units) |_| {
-                    c.columns +%= xenoglyph.width.string(c.texts[@backingInt(kind)], options).raw();
-                    std.mem.doNotOptimizeAway(c.columns);
+                    std.mem.doNotOptimizeAway(xenoglyph.width.string(c.texts[@backingInt(kind)], options));
                 }
             }
         }.run;
@@ -31,8 +29,7 @@ const Context = struct {
             fn run(c: *Context, units: u64) WorkloadError!void {
                 for (0..units) |_| {
                     var it: xenoglyph.grapheme.Iterator(.{ .modifiers = .after_base }) = .init(c.texts[@backingInt(kind)]);
-                    while (it.next()) |g| c.columns +%= xenoglyph.width.cluster(g, .{}).raw();
-                    std.mem.doNotOptimizeAway(c.columns);
+                    while (it.next()) |g| std.mem.doNotOptimizeAway(xenoglyph.width.cluster(g, .{}));
                 }
             }
         }.run;

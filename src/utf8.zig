@@ -5,6 +5,7 @@
 //! by not continuing it is where the next code point starts, so
 //! `"\xe4\xb8a"` is U+FFFD then `a`.
 const std = @import("std");
+const aegis = @import("aegis");
 const domains = @import("domains.zig");
 
 /// U+FFFD REPLACEMENT CHARACTER, what an ill-formed subpart decodes to.
@@ -211,14 +212,15 @@ pub fn printableAscii(bytes: []const u8) bool {
 /// Writes the code points an iterator gives (anything with `next() ?u21`)
 /// as UTF-8, a buffer at a time.
 pub fn encode(it: anytype, w: *std.Io.Writer) std.Io.Writer.Error!void {
-    var buffer: [256]u8 = undefined;
-    var len: usize = 0;
+    var buffer: aegis.bounded.Array(u8, 256) = .init;
     while (it.next()) |cp| {
-        if (len + 4 > buffer.len) {
-            try w.writeAll(buffer[0..len]);
-            len = 0;
+        var bytes: [4]u8 = undefined;
+        const n = std.unicode.utf8Encode(cp, &bytes) catch unreachable; // unreachable: the iterators give scalar values
+        if (buffer.capacity() - buffer.len() < n) {
+            try w.writeAll(buffer.constItems());
+            buffer = .init;
         }
-        len += std.unicode.utf8Encode(cp, buffer[len..]) catch unreachable; // unreachable: the iterators give scalar values
+        buffer.appendSlice(bytes[0..n]) catch aegis.assert.never("an emptied buffer holds a code point");
     }
-    try w.writeAll(buffer[0..len]);
+    try w.writeAll(buffer.constItems());
 }

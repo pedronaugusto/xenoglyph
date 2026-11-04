@@ -68,7 +68,7 @@ fn aksara(i: Item) bool {
 }
 
 /// What the rules read behind a position, carried forward item by item.
-const Behind = struct {
+pub const Behind = struct {
     /// Before the first code point: no position has been decided.
     started: bool = false,
     /// The class of the code point just behind, as written (LB4 to LB8a).
