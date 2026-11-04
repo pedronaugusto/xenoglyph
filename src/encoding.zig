@@ -1124,8 +1124,11 @@ pub const Encoder = struct {
     /// before it.
     consumed: u64 = 0,
     /// The start of a code point the last piece ended in.
-    held: aegis.bounded.Array(u8, 4) = .init,
+    held: Held = .init,
     iso: IsoEncode = .ascii,
+
+    /// The bytes of a code point split between pieces: at most four.
+    pub const Held = aegis.bounded.Array(u8, 4);
 
     /// An encoder of `encoding`; replacement, which encodes nothing, is
     /// UTF-8, as its output encoding is.
@@ -1181,7 +1184,7 @@ pub const Encoder = struct {
             const got = utf8.decode(rest);
             if (!last and got.code_point == utf8.replacement and got.len == rest.len and rest.len < 4 and incomplete(rest)) {
                 // A code point the next piece completes.
-                e.held = .fromSlice(rest) catch aegis.assert.never("an incomplete code point is under four bytes");
+                e.held = Held.fromSlice(rest) catch aegis.assert.never("an incomplete code point is under four bytes");
                 e.consumed += rest.len;
                 return;
             }

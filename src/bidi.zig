@@ -54,7 +54,7 @@ pub const Options = struct {
 /// One byte's working state while a paragraph is resolved. The caller owns
 /// the memory; it means nothing after `resolve` returns.
 pub const Scratch = packed struct(u32) {
-    class: BidiClass, // aegis: no-danger: a character's Bidi_Class as the rules refine it, data and not a state; no transitions to declare
+    class: BidiClass, // aegis: no-danger(A017): a character's Bidi_Class, which UAX #9's passes refine per position in a fixed order: data, with no events or lifecycle to state as transitions
     /// Skipped by every rule after X9: a character X9 removes, or a byte
     /// inside a unit (with class BN), which the unit's first byte stands for.
     removed: bool,

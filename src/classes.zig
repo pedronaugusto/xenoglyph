@@ -290,7 +290,7 @@ pub const Cluster = packed struct(u16) {
 pub const Line = packed struct(u16) {
     /// Line_Break as rule LB1 resolves it by default: AI, SG and XX to AL,
     /// SA to CM for a mark (Mn, Mc) and AL otherwise, CJ to NS.
-    class: LineBreak = .alphabetic,
+    class: LineBreak = .alphabetic, // aegis: no-danger(A017): a code point's Line_Break, which UAX #14's rules refine per position (LB9 and LB10 read an attached mark as its base or AL): data, with no events or lifecycle to state as transitions
     /// General_Category Initial_Punctuation (Pi), which LB15a and LB19 read.
     initial: bool = false,
     /// General_Category Final_Punctuation (Pf), which LB15b and LB19 read.
