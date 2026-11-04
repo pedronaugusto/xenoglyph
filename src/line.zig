@@ -11,6 +11,7 @@
 //! (LB15a, LB19a, LB20a, LB21a) read the item before a break. Nothing
 //! allocates.
 const std = @import("std");
+const aegis = @import("aegis");
 const classes = @import("classes.zig");
 const records = @import("records.zig");
 const utf8 = @import("utf8.zig");
@@ -158,7 +159,7 @@ fn decide(b: *const Behind, record: Line, bytes: []const u8, end: usize) Decisio
     if (c == .space or c == .zw_space) return .prohibited; // LB7
     if (b.solid != null and b.solid.?.class == .zw_space and (b.lastIs(.zw_space) or b.lastIs(.space))) return .allowed; // LB8
     if (p == .zwj) return .prohibited; // LB8a
-    const left = b.last.?; // a code point has been taken in: `b.started`
+    const left = b.last orelse aegis.assert.never("a code point has been taken in: `b.started`");
     if (attaching(c) and base(left.class)) return .prohibited; // LB9
     const r: Item = if (attaching(c)) letter_a else record; // LB10
     const l = left.class;

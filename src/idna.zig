@@ -137,7 +137,7 @@ pub fn toUnicode(name: []const u8, w: *Writer, options: Options) Error!Failures 
         first = false;
         for (label.code_points) |cp| {
             var bytes: [4]u8 = undefined;
-            const n = std.unicode.utf8Encode(cp, &bytes) catch unreachable; // unreachable: every code point here is a scalar value
+            const n = std.unicode.utf8Encode(cp, &bytes) catch aegis.assert.never("every code point here is a scalar value");
             try w.writeAll(bytes[0..n]);
         }
     }
@@ -383,15 +383,15 @@ fn mapping(cp: u21) []const u21 {
         const mid = low + (high - low) / 2;
         if (list[mid] < cp) low = mid + 1 else high = mid;
     }
-    std.debug.assert(low < list.len);
-    std.debug.assert(list[low] == cp);
+    aegis.assert.invariant(low < list.len, "a mapped code point is in the list");
+    aegis.assert.invariant(list[low] == cp, "a mapped code point is in the list");
     const m: classes.Mapping = @bitCast(data.idna.mappings[low]);
     return data.idna.pool[m.start..][0..m.len];
 }
 
 fn writeCodePoint(w: *Writer, cp: u21) Writer.Error!void {
     var bytes: [4]u8 = undefined;
-    const n = std.unicode.utf8Encode(cp, &bytes) catch unreachable; // unreachable: the table maps to scalar values, and decoding gives only them
+    const n = std.unicode.utf8Encode(cp, &bytes) catch aegis.assert.never("the table maps to scalar values, and decoding gives only them");
     try w.writeAll(bytes[0..n]);
 }
 

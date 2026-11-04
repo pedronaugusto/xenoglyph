@@ -1299,7 +1299,7 @@ pub const Encoder = struct {
                     return error.Unmappable;
                 }
                 var buffer: [7]u8 = undefined;
-                const digits = std.fmt.bufPrint(&buffer, "{d}", .{reported}) catch aegis.assert.never("a code point is at most seven decimal digits");
+                const digits = std.mem.print(&buffer, "{d}", .{reported}) catch aegis.assert.never("a code point is at most seven decimal digits");
                 try e.codePoint(enc, '&', out);
                 try e.codePoint(enc, '#', out);
                 for (digits) |c| try e.codePoint(enc, c, out);

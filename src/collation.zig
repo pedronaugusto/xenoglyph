@@ -4,6 +4,7 @@
 //! compare as their texts do; neither allocates. Input is any UTF-8, read in
 //! NFD (UTS #10 step 1), ill-formed bytes as U+FFFD.
 const std = @import("std");
+const aegis = @import("aegis");
 const data = @import("data.zig");
 const normalize = @import("normalize.zig");
 const canonical = @import("canonical.zig");
@@ -271,16 +272,22 @@ pub const Elements = struct {
             out.primary |= @intCast(e.number_left);
             return out;
         }
-        const high = e.number_head orelse digitValue(e.read().?).?;
+        const high = e.number_head orelse e.countedDigit();
         e.number_head = null;
         e.number_left -= 1;
         var low: u8 = 0;
         if (e.number_left != 0) {
-            low = digitValue(e.read().?).?;
+            low = e.countedDigit();
             e.number_left -= 1;
         }
         out.primary |= 1 + @as(u32, high) * 10 + low;
         return out;
+    }
+
+    /// The next of the digits `countDigits` counted ahead.
+    fn countedDigit(e: *Elements) u8 {
+        const cp = e.read() orelse aegis.assert.never("a counted digit lies ahead");
+        return digitValue(cp) orelse aegis.assert.never("what countDigits counted is a digit");
     }
 };
 

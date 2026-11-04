@@ -3,6 +3,7 @@
 //! composites they read, internal to xenoglyph: `normalize` runs it over a
 //! text's decomposition, and `case` over the stages of the caseless
 //! matches. Nothing allocates.
+const aegis = @import("aegis");
 const data = @import("data.zig");
 
 const tables = data.normalization;
@@ -218,7 +219,7 @@ pub fn Canonical(comptime Source: type, comptime composes: bool) type {
                 it.buffer[0] = s;
                 it.len = 1;
                 if (composes) {
-                    const result = it.composeLong(long);
+                    const result = it.composeLong(long, s);
                     it.buffer[0] = result.starter;
                     // Every non-starter composed: the starter stays open to
                     // the starter after the run, as in a short run.
@@ -230,8 +231,8 @@ pub fn Canonical(comptime Source: type, comptime composes: bool) type {
 
         /// Every composition of a long run, in canonical order: the final
         /// starter, and whether any non-starter is kept.
-        fn composeLong(it: *const Self, long: Long) struct { starter: u21, kept: bool } {
-            var starter = long.starter.?;
+        fn composeLong(it: *const Self, long: Long, first: u21) struct { starter: u21, kept: bool } {
+            var starter = first;
             var any_kept = false;
             var class: u8 = 0;
             while (it.classAbove(long, class)) |c| : (class = c) {
@@ -239,7 +240,7 @@ pub fn Canonical(comptime Source: type, comptime composes: bool) type {
                 scan.seek(long.marks);
                 var kept = false;
                 while (!scan.position().eql(long.end)) {
-                    const cp = scan.next().?;
+                    const cp = scan.next() orelse aegis.assert.never("a long run's non-starters lie before its end");
                     if (combiningClass(cp) != c) continue;
                     if (!kept) if (compose(starter, cp)) |composite| {
                         starter = composite;
@@ -259,7 +260,7 @@ pub fn Canonical(comptime Source: type, comptime composes: bool) type {
             scan.seek(long.marks);
             var best: ?u8 = null;
             while (!scan.position().eql(long.end)) {
-                const c = combiningClass(scan.next().?);
+                const c = combiningClass(scan.next() orelse aegis.assert.never("a long run's non-starters lie before its end"));
                 if (c > class and (best == null or c < best.?)) best = c;
             }
             return best;
@@ -267,7 +268,7 @@ pub fn Canonical(comptime Source: type, comptime composes: bool) type {
 
         /// The next non-starter of a long run, or null when it is done.
         fn nextLong(it: *Self) ?u21 {
-            const long = &it.long.?;
+            const long = if (it.long) |*run| run else aegis.assert.never("nextLong runs only inside a long run");
             while (true) {
                 if (long.cursor.eql(long.end)) {
                     long.class = it.classAbove(long.*, long.class) orelse {
@@ -279,7 +280,7 @@ pub fn Canonical(comptime Source: type, comptime composes: bool) type {
                 }
                 var scan = it.source;
                 scan.seek(long.cursor);
-                const cp = scan.next().?;
+                const cp = scan.next() orelse aegis.assert.never("a long run's cursor is before its end");
                 long.cursor = scan.position();
                 if (combiningClass(cp) != long.class) continue;
                 if (composes) if (long.starter) |s| if (!long.kept) if (compose(s, cp)) |composite| {

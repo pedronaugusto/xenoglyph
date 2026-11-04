@@ -330,7 +330,7 @@ pub fn equal(comptime form: Form, a: []const u8, b: []const u8) bool {
 
 fn expectForm(comptime form: Form, input: []const u8, want: []const u21) !void {
     var it: Iterator(form) = .init(input);
-    for (want) |w| try std.testing.expectEqual(w, it.next().?);
+    for (want) |w| try std.testing.expectEqual(@as(?u21, w), it.next());
     try std.testing.expectEqual(null, it.next());
 }
 

@@ -59,7 +59,7 @@ fn decodeMultibyte(bytes: []const u8) Decoded {
                 .code_point = (@as(u21, lead & 0x07) << 18) | (@as(u21, b1 & 0x3f) << 12) | (@as(u21, bytes[2] & 0x3f) << 6) | (bytes[3] & 0x3f),
                 .len = 4,
             },
-            else => unreachable, // unreachable: a lead takes one to three more bytes
+            else => aegis.assert.never("a lead takes one to three more bytes"),
         };
     }
     // Ill-formed: the maximal subpart is the lead and the continuation
@@ -215,7 +215,7 @@ pub fn encode(it: anytype, w: *std.Io.Writer) std.Io.Writer.Error!void {
     var buffer: aegis.bounded.Array(u8, 256) = .init;
     while (it.next()) |cp| {
         var bytes: [4]u8 = undefined;
-        const n = std.unicode.utf8Encode(cp, &bytes) catch unreachable; // unreachable: the iterators give scalar values
+        const n = std.unicode.utf8Encode(cp, &bytes) catch aegis.assert.never("the iterators give scalar values");
         if (buffer.capacity() - buffer.len() < n) {
             try w.writeAll(buffer.constItems());
             buffer = .init;
