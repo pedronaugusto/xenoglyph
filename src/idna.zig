@@ -7,6 +7,7 @@
 //! says what failed. Nothing allocates: a name is worked on in buffers on
 //! the stack, up to `max_code_points`.
 const std = @import("std");
+const aegis = @import("aegis");
 const Writer = std.Io.Writer;
 const classes = @import("classes.zig");
 const data = @import("data.zig");
@@ -92,7 +93,7 @@ pub const Error = Writer.Error || error{
 /// UTS #46 ToASCII: the name as DNS looks it up, written to `w` when
 /// nothing failed; what failed otherwise, and nothing written.
 pub fn toAscii(name: []const u8, w: *Writer, options: Options) Error!Failures {
-    var work: Work = undefined;
+    var work: Work = .{};
     var failures = try work.process(name, options);
     var buffer: [max_code_points * 4]u8 = undefined;
     var out: Writer = .fixed(&buffer);
@@ -125,7 +126,7 @@ pub fn toAscii(name: []const u8, w: *Writer, options: Options) Error!Failures {
 /// UTS #46 ToUnicode: the name to show, always written to `w`, and what
 /// failed. A label after `xn--` that did not decode is written as it came.
 pub fn toUnicode(name: []const u8, w: *Writer, options: Options) Error!Failures {
-    var work: Work = undefined;
+    var work: Work = .{};
     var opts = options;
     opts.verify_dns_length = false;
     const failures = try work.process(name, opts);
@@ -147,8 +148,7 @@ const Label = struct { code_points: []const u21 };
 
 /// A name being processed: its code points, labels separated by `.`.
 const Work = struct {
-    code_points: [max_code_points]u21,
-    len: usize,
+    code_points: aegis.bounded.Array(u21, max_code_points) = .init,
 
     const LabelIterator = struct {
         rest: ?[]const u21,
@@ -165,7 +165,7 @@ const Work = struct {
     };
 
     fn labels(work: *const Work) LabelIterator {
-        return .{ .rest = work.code_points[0..work.len] };
+        return .{ .rest = work.code_points.constItems() };
     }
 
     /// UTS #46 §4: map, normalize, break into labels, convert and
@@ -193,24 +193,28 @@ const Work = struct {
         const text = normal.buffered();
         // Convert each label: one after "xn--" decoded in place of its
         // Punycode. A label that did not decode is kept and not validated.
-        var skip: [max_code_points]bool = undefined;
-        var label_count: usize = 0;
-        work.len = 0;
+        // Whether each label, in order, is one not to validate. Each label
+        // but the first pushed a full stop, so there is at most one more
+        // label than there are code points.
+        var skip: aegis.bounded.Array(bool, max_code_points + 1) = .init;
+        work.code_points = .init;
         var labels_text = std.mem.splitScalar(u8, text, '.');
         var first = true;
-        while (labels_text.next()) |label| : (label_count += 1) {
+        while (labels_text.next()) |label| {
             if (!first) try work.push('.');
             first = false;
-            skip[label_count] = false;
+            var skipped = false;
+            defer skip.append(&skipped) catch aegis.assert.never("there is at most one more label than code points");
             if (!std.mem.startsWith(u8, label, "xn--")) {
                 try work.pushUtf8(label);
                 continue;
             }
-            const start = work.len;
+            var decoded_buffer: [max_code_points]u21 = undefined;
             var decoded: []const u21 = &.{};
             const ok = blk: {
                 if (!asciiBytes(label)) break :blk false;
-                decoded = punycode.decode(label[4..], work.code_points[work.len..]) catch |err| switch (err) {
+                const room = work.code_points.capacity() - work.code_points.len();
+                decoded = punycode.decode(label[4..], decoded_buffer[0..room]) catch |err| switch (err) {
                     error.NoSpaceLeft => return error.NameTooLong,
                     error.Invalid, error.Overflow => break :blk false,
                 };
@@ -219,13 +223,12 @@ const Work = struct {
             if (!ok) {
                 if (!options.ignore_invalid_punycode or !asciiBytes(label)) {
                     failures.punycode = true;
-                    skip[label_count] = true;
+                    skipped = true;
                 }
-                work.len = start;
                 try work.pushUtf8(label);
                 continue;
             }
-            work.len += decoded.len;
+            work.code_points.appendSlice(decoded) catch aegis.assert.never("a label decodes into the room left");
             if (decoded.len == 0 or ascii(decoded)) failures.punycode = true;
             // A label from Punycode was neither mapped nor normalized.
             if (!isNfc(decoded)) failures.not_normalized = true;
@@ -246,16 +249,15 @@ const Work = struct {
         var labels_it = work.labels();
         var index: usize = 0;
         while (labels_it.next()) |label| : (index += 1) {
-            if (index < label_count and skip[index]) continue;
+            if (index < skip.len() and skip.constItems()[index]) continue;
             validate(label.code_points, options, bidi_name, &failures);
         }
         return failures;
     }
 
     fn push(work: *Work, cp: u21) error{NameTooLong}!void {
-        if (work.len == work.code_points.len) return error.NameTooLong;
-        work.code_points[work.len] = cp;
-        work.len += 1;
+        var pushed = cp;
+        work.code_points.append(&pushed) catch return error.NameTooLong;
     }
 
     fn pushUtf8(work: *Work, text: []const u8) error{NameTooLong}!void {
@@ -270,7 +272,7 @@ const Work = struct {
     /// A Bidi domain name (RFC 5893 §2): a label holds a right-to-left
     /// character (R, AL) or an Arabic number (AN).
     fn isBidiName(work: *const Work) bool {
-        for (work.code_points[0..work.len]) |cp| switch (record(cp).bidi) {
+        for (work.code_points.constItems()) |cp| switch (record(cp).bidi) {
             .right_to_left, .arabic_letter, .arabic_number => return true,
             else => {},
         };

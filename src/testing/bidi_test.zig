@@ -9,6 +9,7 @@ const shake = @import("shakedown");
 const bidi = @import("../bidi.zig");
 const properties = @import("../properties.zig");
 const utf8 = @import("../utf8.zig");
+const Bytes = @import("../domains.zig").Bytes;
 
 const BidiClass = bidi.BidiClass;
 const max = 256;
@@ -87,11 +88,14 @@ test "BidiTest.txt, every case at every paragraph direction it names" {
                 };
                 var k: usize = 0;
                 for (visual) |r| {
-                    const from = r.span.start.raw();
-                    const to = r.span.end.raw();
-                    var j: usize = 0;
-                    while (j < to - from) : (j += 1) {
-                        const at = if (r.level & 1 == 1) to - 1 - j else from + j;
+                    // Each position of the run in visual order: from its
+                    // end in a right-to-left run.
+                    const rtl = r.level & 1 == 1;
+                    var next: Bytes = if (rtl) r.span.end else r.span.start;
+                    while (if (rtl) next.compare(r.span.start) == .gt else next.compare(r.span.end) == .lt) {
+                        const here = if (rtl) try next.sub(.fromRaw(1)) else next;
+                        next = if (rtl) here else try next.add(.fromRaw(1));
+                        const at = here.raw();
                         if (removed(classes[at])) continue;
                         if (k >= order_count or want_order[k] != at) return fail("BidiTest.txt", line, mode[0], "order", k, if (k < order_count) want_order[k] else 999, at);
                         k += 1;
@@ -216,10 +220,10 @@ fn paragraphsOf(_: void, c: *shake.Case) !void {
         1 => .{ .direction = .ltr },
         else => .{ .direction = .rtl },
     };
-    var start: usize = 0;
-    while (start < bytes.len) {
-        const p: bidi.Paragraph = .resolve(bytes, .fromRaw(start), options, .{ .levels = levels, .scratch = scratch });
-        try std.testing.expect(p.span.end.compare(.fromRaw(start)) == .gt);
+    var start: Bytes = .fromRaw(0);
+    while (start.compare(.fromRaw(bytes.len)) == .lt) {
+        const p: bidi.Paragraph = .resolve(bytes, start, options, .{ .levels = levels, .scratch = scratch });
+        try std.testing.expect(p.span.end.compare(start) == .gt);
         // Every byte has a level no deeper than the deepest there is, and a
         // code point's bytes share it.
         var it = utf8.Iterator.init(p.span.of(bytes));
@@ -242,25 +246,23 @@ fn paragraphsOf(_: void, c: *shake.Case) !void {
         const l = p.line(p.span, runs);
         var seen: usize = 0;
         var visual = l.visual();
-        var sum: usize = 0;
+        var sum: Bytes = .fromRaw(0);
         while (visual.next()) |o| {
             seen += 1;
-            sum += o.raw();
+            sum = try sum.add(o);
         }
         var want_seen: usize = 0;
-        var want_sum: usize = 0;
+        var want_sum: Bytes = .fromRaw(0);
         it = utf8.Iterator.init(p.span.of(bytes));
-        const base = p.span.start.raw();
-        var off: usize = base;
+        var off = p.span.start;
         while (it.next()) |_| {
             want_seen += 1;
-            want_sum += off;
-            const inside = it.offset().raw();
-            off = base + inside;
+            want_sum = try want_sum.add(off);
+            off = try p.span.start.add(it.offset());
         }
         try std.testing.expectEqual(want_seen, seen);
         try std.testing.expectEqual(want_sum, sum);
-        start = p.span.end.raw();
+        start = p.span.end;
     }
 }
 

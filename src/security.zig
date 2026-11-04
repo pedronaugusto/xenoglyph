@@ -9,6 +9,7 @@ const bidi = @import("bidi.zig");
 const canonical = @import("canonical.zig");
 const case = @import("case.zig");
 const data = @import("data.zig");
+const Bytes = @import("domains.zig").Bytes;
 const normalize = @import("normalize.zig");
 const properties = @import("properties.zig");
 const records = @import("records.zig");
@@ -303,7 +304,7 @@ pub const Skeleton = struct {
 };
 
 /// ASCII's prototypes, byte by byte.
-const Ascii = struct {
+pub const Ascii = struct {
     text: []const u8,
     at: usize = 0,
     prototype: Prototype = .{},
@@ -365,11 +366,11 @@ fn visualRuns(text: []const u8, direction: Direction, buffers: Buffers) []const 
         .first_strong, .logical => .auto,
     } };
     var used: usize = 0;
-    var start: usize = 0;
-    while (start < text.len) {
-        const p = bidi.Paragraph.resolve(text, .fromRaw(start), options, .{ .levels = buffers.levels, .scratch = buffers.scratch });
+    var start: Bytes = .fromRaw(0);
+    while (start.compare(.fromRaw(text.len)) == .lt) {
+        const p = bidi.Paragraph.resolve(text, start, options, .{ .levels = buffers.levels, .scratch = buffers.scratch });
         used += p.line(p.span, buffers.runs[used..]).runs.len;
-        start = p.span.end.raw();
+        start = p.span.end;
     }
     return buffers.runs[0..used];
 }
@@ -433,11 +434,9 @@ const Display = struct {
         }
         while (d.run < d.runs.len) {
             const r = d.runs[d.run];
-            const start = r.span.start.raw();
-            const end = r.span.end.raw();
             if (r.level & 1 == 0) {
-                if (d.at < end) {
-                    const c = utf8.decode(d.text[d.at..end]);
+                if (Bytes.fromRaw(d.at).compare(r.span.end) == .lt) {
+                    const c = utf8.decode(d.text[d.at..r.span.end.raw()]);
                     d.at += c.len;
                     return c.code_point;
                 }
@@ -448,10 +447,10 @@ const Display = struct {
                     d.at += c.len;
                     return if (base) bidi.mirror(c.code_point) orelse c.code_point else c.code_point;
                 }
-                if (d.segment > start) {
+                if (Bytes.fromRaw(d.segment).compare(r.span.start) == .gt) {
                     d.end = d.segment;
                     d.segment = records.codePointStart(d.text, d.end);
-                    while (d.segment > start and mark(utf8.decode(d.text[d.segment..d.end]).code_point)) d.segment = records.codePointStart(d.text, d.segment);
+                    while (Bytes.fromRaw(d.segment).compare(r.span.start) == .gt and mark(utf8.decode(d.text[d.segment..d.end]).code_point)) d.segment = records.codePointStart(d.text, d.segment);
                     d.at = d.segment;
                     continue;
                 }
@@ -524,7 +523,7 @@ const First = canonical.Canonical(Decomposed, false);
 /// The third step: the first NFD without default ignorables, each code
 /// point its prototype's. The step before keeps no positions, so a
 /// position here holds a copy of it to go back to.
-const Mapped = struct {
+pub const Mapped = struct {
     const Self = @This();
 
     inner: First,
@@ -677,7 +676,8 @@ const max_marks = 32;
 /// The mark checks, on the text's NFD: repeated marks, long runs, hidden
 /// overlays.
 fn marks(text: []const u8, f: *Failures) void {
-    var run: [max_marks]u21 = undefined;
+    // The run's first marks, to find a repeat among, and how long it is.
+    var run: aegis.bounded.Array(u21, max_marks) = .init;
     var len: usize = 0;
     var lead = false;
     var it: normalize.Iterator(.nfd) = .init(text);
@@ -687,12 +687,16 @@ fn marks(text: []const u8, f: *Failures) void {
         if (class == 0 or class == 230) lead = dotLead(cp);
         switch (properties.generalCategory(cp)) {
             .nonspacing_mark, .enclosing_mark => {
-                if (std.mem.findScalar(u21, run[0..@min(len, max_marks)], cp) != null) f.repeated_mark = true;
-                if (len < max_marks) run[len] = cp;
+                if (std.mem.findScalar(u21, run.constItems(), cp) != null) f.repeated_mark = true;
+                var mark_cp = cp;
+                if (!run.isFull()) run.append(&mark_cp) catch aegis.assert.never("a run not full has room");
                 len += 1;
                 if (len > 4) f.long_mark_run = true;
             },
-            else => len = 0,
+            else => {
+                run = .init;
+                len = 0;
+            },
         }
     }
 }

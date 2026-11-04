@@ -9,6 +9,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - aegis 0.3: its contracts are `assert.invariant`, the one always-on assertion, where `assert.pre` and `assert.post` were its other names.
+- The types of public structs' fields are public themselves, so a caller can name what it holds: `bidi.Kind`, `canonical`'s `Long`, `collation.Elements`, `encoding.Iso2022Event`, `encoding.IsoEncode` and `Encoder.Held`, `grapheme.Class`, `line.Behind`, `case`'s `Behind` and `Queue`, `normalize.Expansion`, and `security.Ascii` and `security.Mapped`.
+- Internally, offsets and widths are computed in their aegis units, buffers kept by hand are `aegis.bounded.Array`, and the bidi stack is a bounded array of its own; output is unchanged.
 - Mixed operators are parenthesized where Zig master refuses them as ambiguous (`a >> b & c`, `a | b << c`, `a * b % c`, `a and b or c`): the parentheses say what Zig 0.17 already did, and nothing changes at runtime.
 
 ## [0.5.1] - 2026-10-27

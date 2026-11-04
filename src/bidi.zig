@@ -54,7 +54,7 @@ pub const Options = struct {
 /// One byte's working state while a paragraph is resolved. The caller owns
 /// the memory; it means nothing after `resolve` returns.
 pub const Scratch = packed struct(u32) {
-    class: BidiClass, // aegis: no-danger: a character's Bidi_Class as the rules refine it, data and not a state; no transitions to declare
+    class: BidiClass, // aegis: no-danger(A017): a character's Bidi_Class, which UAX #9's passes refine per position in a fixed order: data, with no events or lifecycle to state as transitions
     /// Skipped by every rule after X9: a character X9 removes, or a byte
     /// inside a unit (with class BN), which the unit's first byte stands for.
     removed: bool,
@@ -65,7 +65,8 @@ pub const Scratch = packed struct(u32) {
     /// none.
     link: u24,
 
-    const Kind = enum(u2) { other, initiator, pdi, paired };
+    /// What a position is to the isolate and bracket pairing rules.
+    pub const Kind = enum(u2) { other, initiator, pdi, paired };
     const none = std.math.maxInt(u24);
 };
 
@@ -102,12 +103,13 @@ pub const Paragraph = struct {
     /// including its paragraph separator (a CR LF pair is one), or the end
     /// of the text. The next starts at `paragraph.span.end`.
     pub fn resolve(text: []const u8, start: Bytes, options: Options, buffers: Buffers) Paragraph {
-        const from = start.raw();
-        aegis.assert.invariant(from <= text.len, "a paragraph starts inside its text");
-        const room = @min(text.len - from, buffers.levels.len, buffers.scratch.len, max_paragraph);
-        const source: Text = .{ .bytes = text[from..] };
+        const left = Bytes.fromRaw(text.len).sub(start) catch aegis.assert.never("a paragraph starts inside its text");
+        const most: Bytes = .fromRaw(@min(buffers.levels.len, buffers.scratch.len, max_paragraph));
+        const room = (if (left.compare(most) == .lt) left else most).raw();
+        const source: Text = .{ .bytes = text[start.raw()..] };
         const resolved = resolveIn(source, buffers.levels[0..room], buffers.scratch[0..room], options, .paragraph);
-        return .{ .text = text, .span = .fromRaw(from, from + resolved.len), .level = resolved.level, .levels = buffers.levels[0..resolved.len] };
+        const end = start.add(.fromRaw(resolved.len)) catch aegis.assert.never("a paragraph ends inside its text");
+        return .{ .text = text, .span = .{ .start = start, .end = end }, .level = resolved.level, .levels = buffers.levels[0..resolved.len] };
     }
 
     pub fn direction(p: *const Paragraph) Direction {
@@ -116,10 +118,10 @@ pub const Paragraph = struct {
 
     /// The level of the byte at `offset`, which is inside the paragraph.
     pub fn levelAt(p: *const Paragraph, offset: Bytes) Level {
-        const at = offset.raw();
-        const base = p.span.start.raw();
-        aegis.assert.invariant(at >= base and at - base < p.levels.len, "the offset is inside the paragraph");
-        return p.levels[at - base];
+        const inside = offset.sub(p.span.start) catch aegis.assert.never("the offset is inside the paragraph");
+        // A level for each byte: the count of levels is the paragraph's bytes.
+        aegis.assert.invariant(inside.compare(.fromRaw(p.levels.len)) == .lt, "the offset is inside the paragraph");
+        return p.levels[inside.raw()];
     }
 
     /// The paragraph's level runs, in logical order.
@@ -132,22 +134,24 @@ pub const Paragraph = struct {
     /// L2, as runs in visual order in `buffer`, which holds at least one run
     /// a code point of the line (its byte length always suffices).
     pub fn line(p: *const Paragraph, span: Span, buffer: []Run) Line {
-        const base = p.span.start.raw();
-        const from = span.start.raw();
-        const to = span.end.raw();
-        aegis.assert.invariant(from >= base and from <= to and to - base <= p.levels.len, "the line is inside the paragraph");
+        const from = span.start.sub(p.span.start) catch aegis.assert.never("the line is inside the paragraph");
+        const to = span.end.sub(p.span.start) catch aegis.assert.never("the line is inside the paragraph");
+        // A level for each byte: the count of levels is the paragraph's bytes.
+        aegis.assert.invariant(from.compare(to) != .gt and to.compare(.fromRaw(p.levels.len)) != .gt, "the line is inside the paragraph");
         const source: Text = .{ .bytes = p.span.of(p.text) };
-        const n = reorder(source, p.levels, from - base, to - base, p.level, buffer);
-        for (buffer[0..n]) |*r| r.span = shifted(r.span, base);
+        const n = reorder(source, p.levels, from.raw(), to.raw(), p.level, buffer);
+        for (buffer[0..n]) |*r| r.span = shifted(r.span, p.span.start);
         return .{ .text = p.text, .runs = buffer[0..n] };
     }
 };
 
-/// `span` moved `by` bytes on.
-fn shifted(span: Span, by: usize) Span {
-    const start = span.start.raw();
-    const end = span.end.raw();
-    return .fromRaw(start + by, end + by);
+/// `span`, taken inside a paragraph, moved on to where the paragraph
+/// starts, `by`, in its text.
+fn shifted(span: Span, by: Bytes) Span {
+    return .{
+        .start = span.start.add(by) catch aegis.assert.never("a run is inside its text"),
+        .end = span.end.add(by) catch aegis.assert.never("a run is inside its text"),
+    };
 }
 
 /// Level runs in logical order.
@@ -194,15 +198,13 @@ pub const VisualIterator = struct {
     pub fn next(it: *VisualIterator) ?Bytes {
         while (it.run < it.runs.len) {
             const r = it.runs[it.run];
-            const start = r.span.start.raw();
-            const end = r.span.end.raw();
+            const here: Bytes = .fromRaw(it.at);
             if (r.level & 1 == 0) {
-                if (it.at < end) {
-                    const here = it.at;
-                    it.at += utf8.decode(it.text[here..end]).len;
-                    return .fromRaw(here);
+                if (here.compare(r.span.end) == .lt) {
+                    it.at += utf8.decode(it.text[it.at..r.span.end.raw()]).len;
+                    return here;
                 }
-            } else if (it.at > start) {
+            } else if (here.compare(r.span.start) == .gt) {
                 it.at = records.codePointStart(it.text[0..it.at], it.at);
                 return .fromRaw(it.at);
             }
@@ -536,12 +538,36 @@ const Override = enum(u2) { neutral, ltr, rtl };
 
 const Entry = struct { level: Level, override: Override, isolate: bool };
 
+/// The directional status stack (X1): the paragraph's entry at the bottom,
+/// never popped, and at most `max_depth` more above it.
+const Stack = struct {
+    entries: aegis.bounded.Array(Entry, max_depth + 2) = .init,
+
+    fn top(s: *const Stack) Entry {
+        const entries = s.entries.constItems();
+        return entries[entries.len - 1];
+    }
+
+    fn depth(s: *const Stack) usize {
+        return s.entries.len();
+    }
+
+    fn push(s: *Stack, entry: Entry) void {
+        var pushed = entry;
+        s.entries.append(&pushed) catch aegis.assert.never("an entry is pushed only below max_depth, which the stack holds");
+    }
+
+    fn pop(s: *Stack) void {
+        var popped = s.top();
+        s.entries.pop(&popped) catch aegis.assert.never("the paragraph's entry is never popped");
+    }
+};
+
 /// Rules X1 to X9: explicit levels, overrides applied to classes, and the
 /// characters X9 removes marked.
 fn explicit(slots: []Scratch, levels: []Level, para: Level) void {
-    var stack: [max_depth + 2]Entry = undefined;
-    var depth: usize = 1;
-    stack[0] = .{ .level = para, .override = .neutral, .isolate = false };
+    var stack: Stack = .{};
+    stack.push(.{ .level = para, .override = .neutral, .isolate = false });
     var overflow_isolates: usize = 0;
     var overflow_embeddings: usize = 0;
     var valid_isolates: usize = 0;
@@ -552,18 +578,17 @@ fn explicit(slots: []Scratch, levels: []Level, para: Level) void {
     } else null;
     while (at) |i| : (at = nextUnit(slots, i)) {
         const s = &slots[i];
-        const top = stack[depth - 1];
+        const top = stack.top();
         switch (s.class) {
             .right_to_left_embedding, .left_to_right_embedding, .right_to_left_override, .left_to_right_override => {
                 const rtl = s.class == .right_to_left_embedding or s.class == .right_to_left_override;
                 const next: usize = if (rtl) (top.level + 1) | 1 else (top.level + 2) & ~@as(usize, 1);
                 if (next <= max_depth and overflow_isolates == 0 and overflow_embeddings == 0) {
-                    stack[depth] = .{ .level = @intCast(next), .override = switch (s.class) {
+                    stack.push(.{ .level = @intCast(next), .override = switch (s.class) {
                         .right_to_left_override => .rtl,
                         .left_to_right_override => .ltr,
                         else => .neutral,
-                    }, .isolate = false };
-                    depth += 1;
+                    }, .isolate = false });
                 } else if (overflow_isolates == 0) overflow_embeddings += 1;
                 levels[i] = top.level;
                 s.removed = true;
@@ -581,8 +606,7 @@ fn explicit(slots: []Scratch, levels: []Level, para: Level) void {
                 const next: usize = if (rtl) (top.level + 1) | 1 else (top.level + 2) & ~@as(usize, 1);
                 if (next <= max_depth and overflow_isolates == 0 and overflow_embeddings == 0) {
                     valid_isolates += 1;
-                    stack[depth] = .{ .level = @intCast(next), .override = .neutral, .isolate = true };
-                    depth += 1;
+                    stack.push(.{ .level = @intCast(next), .override = .neutral, .isolate = true });
                 } else overflow_isolates += 1;
             },
             .pop_directional_isolate => {
@@ -590,18 +614,18 @@ fn explicit(slots: []Scratch, levels: []Level, para: Level) void {
                     overflow_isolates -= 1;
                 } else if (valid_isolates > 0) {
                     overflow_embeddings = 0;
-                    while (!stack[depth - 1].isolate) depth -= 1;
-                    depth -= 1;
+                    while (!stack.top().isolate) stack.pop();
+                    stack.pop();
                     valid_isolates -= 1;
                 }
-                const now = stack[depth - 1];
+                const now = stack.top();
                 levels[i] = now.level;
                 applyOverride(s, now.override);
             },
             .pop_directional_format => {
                 if (overflow_isolates > 0) {} else if (overflow_embeddings > 0) {
                     overflow_embeddings -= 1;
-                } else if (!top.isolate and depth >= 2) depth -= 1;
+                } else if (!top.isolate and stack.depth() >= 2) stack.pop();
                 levels[i] = top.level;
                 s.removed = true;
             },

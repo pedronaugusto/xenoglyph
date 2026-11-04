@@ -91,7 +91,7 @@ pub fn decompose(cp: u21, form: Form, buffer: *[18]u21) []const u21 {
 
 /// One code point's decomposition, read from the pool or made by the
 /// Hangul algorithm. Holds no pointer, so it may be copied.
-const Expansion = struct {
+pub const Expansion = struct {
     local: [3]u21 = undefined,
     start: u16 = 0,
     len: u8 = 0,

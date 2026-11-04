@@ -89,7 +89,7 @@ const number_primary = zero_primary - (1 << 16);
 const window = 32;
 
 /// The collation elements of a text, in order (UTS #10 steps 2 and 3).
-const Elements = struct {
+pub const Elements = struct {
     source: normalize.Iterator(.nfd),
     numeric: bool,
     /// Code points read ahead of where the elements are, the next first.

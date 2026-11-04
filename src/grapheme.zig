@@ -55,7 +55,7 @@ pub const Span = domains.Span;
 
 /// What the rules read of a code point: its Grapheme_Cluster_Break and
 /// the properties GB9c, GB11 and the modifier tailoring look at.
-const Class = struct {
+pub const Class = struct {
     grapheme_break: classes.GraphemeBreak,
     conjunct: classes.IndicConjunctBreak,
     extended_pictographic: bool,
