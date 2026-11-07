@@ -83,14 +83,29 @@ pub fn simpleFold(cp: u21) u21 {
 /// sorted: what a case-insensitive class closes under. Empty where `cp` folds with no other.
 pub fn simpleFoldOrbit(cp: u21) []const u21 {
     const keyed = &data.ranges.orbit_of;
+    const at = firstAtOrAfter(cp);
+    if (at == keyed.len or keyed[at][0] != cp) return &.{};
+    return data.ranges.orbits[keyed[at][1]];
+}
+
+/// The least code point at or after `cp` whose simple folding orbit holds another, or null past
+/// the last: so a class closes under folding by stepping from one to the next, not through every
+/// code point of its ranges.
+pub fn nextFolding(cp: u21) ?u21 {
+    const at = firstAtOrAfter(cp);
+    return if (at == data.ranges.orbit_of.len) null else data.ranges.orbit_of[at][0];
+}
+
+/// The index in `orbit_of` of the first code point at or after `cp`.
+fn firstAtOrAfter(cp: u21) usize {
+    const keyed = &data.ranges.orbit_of;
     var low: usize = 0;
     var high: usize = keyed.len;
     while (low < high) {
         const mid = low + (high - low) / 2;
         if (keyed[mid][0] < cp) low = mid + 1 else high = mid;
     }
-    if (low == keyed.len or keyed[low][0] != cp) return &.{};
-    return data.ranges.orbits[keyed[low][1]];
+    return low;
 }
 
 /// The full mapping of a code point whose record says it has one, or null
@@ -573,4 +588,23 @@ test "a code point's simple folding orbit holds every code point that folds with
     try std.testing.expectEqual(@as(usize, 0), simpleFoldOrbit('1').len);
     // Every member of every orbit folds to one code point.
     for (data.ranges.orbits) |orbit| for (orbit) |cp| try std.testing.expectEqual(simpleFold(orbit[0]), simpleFold(cp));
+}
+
+test "stepping by nextFolding visits exactly the code points with an orbit, in order" {
+    try std.testing.expectEqual(@as(?u21, 'A'), nextFolding(0));
+    try std.testing.expectEqual(@as(?u21, 'K'), nextFolding('K'));
+    try std.testing.expectEqual(@as(?u21, 'a'), nextFolding('Z' + 1));
+    try std.testing.expectEqual(@as(?u21, null), nextFolding(0x10ffff));
+    var visited: usize = 0;
+    var next = nextFolding(0);
+    var last: ?u21 = null;
+    while (next) |cp| : (next = if (cp == 0x10ffff) null else nextFolding(cp + 1)) {
+        if (last) |l| try std.testing.expect(cp > l);
+        try std.testing.expect(simpleFoldOrbit(cp).len > 1);
+        last = cp;
+        visited += 1;
+    }
+    var expected: usize = 0;
+    for (data.ranges.orbits) |orbit| expected += orbit.len;
+    try std.testing.expectEqual(expected, visited);
 }

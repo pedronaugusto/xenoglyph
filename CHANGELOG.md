@@ -19,6 +19,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Each property value's code points as sorted ranges, for a caller that needs the whole set (a regular expression's class): `properties.generalCategoryRanges`, `scriptRanges`, `scriptExtensionRanges`, `coreRanges` (DerivedCoreProperties' binary properties) and `whiteSpaceRanges`; and `case.simpleFoldOrbit`, every code point that simple case folding takes to the same one. Generated with the other tables (`src/data/ranges.zig`).
 - Every binary property of PropList.txt, DerivedCoreProperties.txt, emoji-data.txt and DerivedNormalizationProps.txt, and Bidi_Mirrored, as `properties.Binary` with `binaryRanges`; General_Category's groups (L, LC, M, N, P, S, Z, C) as `GeneralCategory.Group`, with `within` and `generalCategoryGroupRanges`.
 - Properties and values found by name, by every name and alias PropertyAliases.txt and PropertyValueAliases.txt give them, exactly (as ECMA-262 compares them) or by UAX #44's LM3 (as UTS #18 does): `propertyNamed`, `binaryNamed`, `scriptNamed`, `generalCategoryNamed`. ucd/ carries PropertyAliases.txt 18.0.0.
+- `case.nextFolding`: the next code point with a simple folding orbit, so a class closes under folding orbit by orbit, not code point by code point.
 ## [0.5.1] - 2026-10-27
 
 ### Changed
