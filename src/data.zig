@@ -17,3 +17,4 @@ pub const bidi = @import("data/bidi.zig");
 pub const encoding = @import("data/encoding.zig");
 pub const collation = @import("data/collation.zig");
 pub const security = @import("data/security.zig");
+pub const ranges = @import("data/ranges.zig");

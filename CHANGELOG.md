@@ -13,6 +13,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Internally, offsets and widths are computed in their aegis units, buffers kept by hand are `aegis.bounded.Array`, and the bidi stack is a bounded array of its own; output is unchanged.
 - Mixed operators are parenthesized where Zig master refuses them as ambiguous (`a >> b & c`, `a | b << c`, `a * b % c`, `a and b or c`): the parentheses say what Zig 0.17 already did, and nothing changes at runtime.
 
+
+### Added
+
+- Each property value's code points as sorted ranges, for a caller that needs the whole set (a regular expression's class): `properties.generalCategoryRanges`, `scriptRanges`, `scriptExtensionRanges`, `coreRanges` (DerivedCoreProperties' binary properties) and `whiteSpaceRanges`; and `case.simpleFoldOrbit`, every code point that simple case folding takes to the same one. Generated with the other tables (`src/data/ranges.zig`).
 ## [0.5.1] - 2026-10-27
 
 ### Changed

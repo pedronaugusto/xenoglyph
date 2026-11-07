@@ -34,6 +34,35 @@ pub const max_code_point: u21 = 0x10ffff;
 /// The Unicode version of every table.
 pub const unicode_version: std.SemanticVersion = .{ .major = 18, .minor = 0, .patch = 0 };
 
+/// A run of code points, the first and the last, inclusive.
+pub const Range = [2]u21;
+
+/// Every code point of General_Category `gc`, as sorted ranges: the set a regular expression's
+/// class takes, where `generalCategory` answers one code point.
+pub fn generalCategoryRanges(gc: GeneralCategory) []const Range {
+    return data.ranges.general_category[@backingInt(gc)];
+}
+
+/// Every code point whose Script is `s`, as sorted ranges.
+pub fn scriptRanges(s: Script) []const Range {
+    return data.ranges.script[@backingInt(s)];
+}
+
+/// Every code point whose Script_Extensions holds `s`, as sorted ranges.
+pub fn scriptExtensionRanges(s: Script) []const Range {
+    return data.ranges.script_extensions[@backingInt(s)];
+}
+
+/// Every code point with the binary property `property` of `Core`, as sorted ranges.
+pub fn coreRanges(comptime property: std.meta.FieldEnum(Core)) []const Range {
+    return @field(data.ranges.core, @tagName(property));
+}
+
+/// Every White_Space code point (PropList.txt), as sorted ranges.
+pub fn whiteSpaceRanges() []const Range {
+    return data.ranges.white_space;
+}
+
 /// General_Category.
 pub fn generalCategory(cp: u21) GeneralCategory {
     if (cp > max_code_point) return .unassigned;
@@ -128,4 +157,43 @@ fn single(s: Script) []const Script {
 /// in every build: an entry that names no value is a broken table.
 fn entry(comptime E: type, value: anytype) E {
     return std.enums.fromInt(E, value) orelse aegis.assert.never("a generated table entry names a value of its property");
+}
+
+test "each property value's ranges hold exactly the code points the lookups give it" {
+    var gc_seen: [std.enums.values(GeneralCategory).len]usize = @splat(0);
+    for (std.enums.values(GeneralCategory)) |gc| {
+        var last: ?u21 = null;
+        for (generalCategoryRanges(gc)) |r| {
+            try std.testing.expect(r[0] <= r[1]);
+            // Sorted and apart: two runs that touch would be one.
+            if (last) |l| try std.testing.expect(r[0] > l + 1);
+            last = r[1];
+            var cp = r[0];
+            while (true) : (cp += 1) {
+                try std.testing.expectEqual(gc, generalCategory(cp));
+                gc_seen[@backingInt(gc)] += 1;
+                if (cp == r[1]) break;
+            }
+        }
+    }
+    var total: usize = 0;
+    for (gc_seen) |n| total += n;
+    try std.testing.expectEqual(@as(usize, max_code_point) + 1, total);
+    for (scriptRanges(.greek)) |r| {
+        try std.testing.expectEqual(Script.greek, script(r[0]));
+        try std.testing.expectEqual(Script.greek, script(r[1]));
+    }
+    // U+0951 (DEVANAGARI STRESS SIGN UDATTA) is Inherited by Script, and Latin among its extensions.
+    try std.testing.expectEqual(Script.inherited, script(0x951));
+    try std.testing.expect(holds(scriptExtensionRanges(.latin), 0x951));
+    try std.testing.expect(!holds(scriptRanges(.latin), 0x951));
+    try std.testing.expect(holds(coreRanges(.alphabetic), 'a'));
+    try std.testing.expect(!holds(coreRanges(.alphabetic), '1'));
+    try std.testing.expect(holds(whiteSpaceRanges(), 0x2028));
+    try std.testing.expect(!holds(whiteSpaceRanges(), 'x'));
+}
+
+fn holds(ranges: []const Range, cp: u21) bool {
+    for (ranges) |r| if (cp >= r[0] and cp <= r[1]) return true;
+    return false;
 }

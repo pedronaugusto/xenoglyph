@@ -79,6 +79,20 @@ pub fn simpleFold(cp: u21) u21 {
     return shifted(cp, record(cp).fold);
 }
 
+/// Every code point that simple case folding takes to the same one as `cp`, `cp` among them,
+/// sorted: what a case-insensitive class closes under. Empty where `cp` folds with no other.
+pub fn simpleFoldOrbit(cp: u21) []const u21 {
+    const keyed = &data.ranges.orbit_of;
+    var low: usize = 0;
+    var high: usize = keyed.len;
+    while (low < high) {
+        const mid = low + (high - low) / 2;
+        if (keyed[mid][0] < cp) low = mid + 1 else high = mid;
+    }
+    if (low == keyed.len or keyed[low][0] != cp) return &.{};
+    return data.ranges.orbits[keyed[low][1]];
+}
+
 /// The full mapping of a code point whose record says it has one, or null
 /// where it has none for `mapping` and the simple one applies.
 fn special(cp: u21, mapping: Mapping) ?[]const u21 {
@@ -549,4 +563,14 @@ test "caseless matches" {
     try std.testing.expect(equal(.identifier, "\u{3b1}\u{345}\u{313}", "\u{1f00}\u{3b9}", .{}));
     try std.testing.expect(!equal(.identifier, "\u{3b1}\u{345}\u{313}", "\u{3b1}\u{1f30}", .{}));
     try std.testing.expect(equal(.canonical, "I", "\u{131}", .{ .language = .turkic }));
+}
+
+test "a code point's simple folding orbit holds every code point that folds with it" {
+    // K, k and the Kelvin sign fold together; so do S, s and the long s.
+    try std.testing.expectEqualSlices(u21, &.{ 'K', 'k', 0x212a }, simpleFoldOrbit('k'));
+    try std.testing.expectEqualSlices(u21, &.{ 'K', 'k', 0x212a }, simpleFoldOrbit(0x212a));
+    try std.testing.expectEqualSlices(u21, &.{ 'S', 's', 0x17f }, simpleFoldOrbit('S'));
+    try std.testing.expectEqual(@as(usize, 0), simpleFoldOrbit('1').len);
+    // Every member of every orbit folds to one code point.
+    for (data.ranges.orbits) |orbit| for (orbit) |cp| try std.testing.expectEqual(simpleFold(orbit[0]), simpleFold(cp));
 }

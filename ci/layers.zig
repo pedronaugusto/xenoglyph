@@ -48,6 +48,7 @@ pub const reexports = [_]struct { from: []const u8, to: []const u8 }{
     .{ .from = "src/data.zig", .to = "src/data/encoding.zig" },
     .{ .from = "src/data.zig", .to = "src/data/core.zig" },
     .{ .from = "src/data.zig", .to = "src/data/script.zig" },
+    .{ .from = "src/data.zig", .to = "src/data/ranges.zig" },
     .{ .from = "src/data.zig", .to = "src/data/wrapping.zig" },
     .{ .from = "src/data.zig", .to = "src/data/normalization.zig" },
     .{ .from = "src/data.zig", .to = "src/data/casing.zig" },
