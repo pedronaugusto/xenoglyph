@@ -88,6 +88,32 @@ pub const GeneralCategory = enum(u5) {
             else => false,
         };
     }
+
+    /// The groups PropertyValueAliases.txt names beside the values: L, LC, M, N, P, S, Z and C.
+    pub const Group = enum(u3) {
+        letter,
+        cased_letter,
+        mark,
+        number,
+        punctuation,
+        symbol,
+        separator,
+        other,
+    };
+
+    /// Whether `c` is one of `group`'s values.
+    pub fn within(c: GeneralCategory, group: Group) bool {
+        return switch (group) {
+            .letter => c.isLetter(),
+            .cased_letter => c.isCasedLetter(),
+            .mark => c.isMark(),
+            .number => c.isNumber(),
+            .punctuation => c.isPunctuation(),
+            .symbol => c.isSymbol(),
+            .separator => c.isSeparator(),
+            .other => c.isOther(),
+        };
+    }
 };
 
 /// East_Asian_Width (UAX #11).

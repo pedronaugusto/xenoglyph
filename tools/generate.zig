@@ -120,7 +120,7 @@ fn generate(gpa: Allocator, ucd: Ucd) ![]const File {
     try files.append(gpa, .{ .name = "encoding.zig", .bytes = try encoding.encodingFile(gpa, ucd) });
     try files.append(gpa, .{ .name = "collation.zig", .bytes = try collation.collationFile(gpa, ucd, ud) });
     try files.append(gpa, .{ .name = "security.zig", .bytes = try security.securityFile(gpa, ucd) });
-    try files.append(gpa, .{ .name = "ranges.zig", .bytes = try rangesFile(gpa, ucd, p) });
+    try files.append(gpa, .{ .name = "ranges.zig", .bytes = try rangesFile(gpa, ucd, p, aliases) });
     for (files.items) |*file| file.bytes = try formatted(gpa, file.name, file.bytes);
     return files.toOwnedSlice(gpa);
 }
@@ -749,10 +749,10 @@ fn writeRanges(w: *std.Io.Writer, in: []const bool) !void {
     try w.writeAll(if (any) " }" else "}");
 }
 
-fn rangesFile(gpa: Allocator, ucd: Ucd, p: Properties) ![]const u8 {
+fn rangesFile(gpa: Allocator, ucd: Ucd, p: Properties, aliases: Aliases) ![]const u8 {
     var out: std.Io.Writer.Allocating = .init(gpa);
     const w = &out.writer;
-    try plainHeader(w, "Each property value's code points as sorted ranges, and the simple case folding orbits", "extracted/DerivedGeneralCategory.txt, Scripts.txt, ScriptExtensions.txt, DerivedCoreProperties.txt, PropList.txt, CaseFolding.txt");
+    try plainHeader(w, "Each property value's code points as sorted ranges, the names and aliases a regular expression's classes name them by, and the simple case folding orbits", "extracted/DerivedGeneralCategory.txt, Scripts.txt, ScriptExtensions.txt, PropList.txt, DerivedCoreProperties.txt, emoji/emoji-data.txt, DerivedNormalizationProps.txt, UnicodeData.txt, PropertyAliases.txt, PropertyValueAliases.txt, CaseFolding.txt");
     const in = try gpa.alloc(bool, code_points);
 
     try w.writeAll("\n/// General_Category: indexed by its enum.\npub const general_category = [_][]const [2]u21{\n");
@@ -785,31 +785,22 @@ fn rangesFile(gpa: Allocator, ucd: Ucd, p: Properties) ![]const u8 {
         try writeRanges(w, in);
         try w.writeAll(",\n");
     }
-    try w.writeAll("};\n\n/// The binary properties of DerivedCoreProperties.txt, by `Core`'s field names.\npub const core = struct {\n");
-    inline for (@typeInfo(classes.Core).@"struct".field_names) |name| {
-        if (comptime std.mem.eql(u8, name, "_")) continue;
-        for (p.core, in) |c, *x| x.* = @field(c, name);
-        try w.print("    pub const {f}: []const [2]u21 = ", .{std.zig.fmtId(name)});
+    try w.writeAll("};\n\n/// General_Category's groups, indexed by `classes.GeneralCategory.Group`.\npub const general_category_group = [_][]const [2]u21{\n");
+    for (std.enums.values(classes.GeneralCategory.Group)) |group| {
+        for (p.general_category, in) |gc, *x| x.* = gc.within(group);
+        try w.writeAll("    ");
         try writeRanges(w, in);
-        try w.writeAll(";\n");
+        try w.writeAll(",\n");
     }
     try w.writeAll("};\n");
 
-    // White_Space, from PropList.txt: a regular expression's `\\s` and UTS #18's level 1 need it.
-    @memset(in, false);
-    var lines: Lines = .init(try ucd.read("PropList.txt"));
-    while (try lines.next()) |l| if (std.mem.eql(u8, l.field(0), "White_Space")) {
-        for (l.first..@as(usize, l.last) + 1) |cp| in[cp] = true;
-    };
-    try w.writeAll("\n/// White_Space (PropList.txt).\npub const white_space: []const [2]u21 = ");
-    try writeRanges(w, in);
-    try w.writeAll(";\n");
+    try writeNames(gpa, ucd, w, aliases, try writeBinary(gpa, ucd, w));
 
     // The simple case folding orbits: every code point and those that fold to the same one
     // (CaseFolding.txt's C and S lines), so a case-insensitive class closes under them.
     const fold = try gpa.alloc(u21, code_points);
     for (fold, 0..) |*f, cp| f.* = @intCast(cp);
-    lines = .init(try ucd.read("CaseFolding.txt"));
+    var lines: Lines = .init(try ucd.read("CaseFolding.txt"));
     while (try lines.next()) |l| {
         const status = l.field(0);
         if (!std.mem.eql(u8, status, "C") and !std.mem.eql(u8, status, "S")) continue;
@@ -846,6 +837,160 @@ fn rangesFile(gpa: Allocator, ucd: Ucd, p: Properties) ![]const u8 {
     for (keyed.items) |pair| try w.print("    .{{ 0x{x}, {d} }},\n", .{ pair[0], pair[1] });
     try w.writeAll("};\n");
     return out.toOwnedSlice();
+}
+
+/// The files whose lines of one field after the range (its name) are binary properties.
+const binary_sources = [_][]const u8{ "PropList.txt", "DerivedCoreProperties.txt", "emoji/emoji-data.txt", "DerivedNormalizationProps.txt" };
+
+/// Every binary property the vendored files hold: those of `binary_sources`, and Bidi_Mirrored
+/// from UnicodeData.txt. Written as an enum of their long names in lower case, in order of name,
+/// and each one's code points as ranges, indexed by it. Returns their long names in that order.
+fn writeBinary(gpa: Allocator, ucd: Ucd, w: *std.Io.Writer) ![]const []const u8 {
+    var sets: std.StringArrayHashMapUnmanaged([]bool) = .empty;
+    for (binary_sources) |path| {
+        var lines: Lines = .init(try ucd.read(path));
+        while (try lines.next()) |l| {
+            if (l.count != 1) continue;
+            const set = try sets.getOrPut(gpa, l.field(0));
+            if (!set.found_existing) set.value_ptr.* = try filled(gpa, bool, false);
+            for (l.first..@as(usize, l.last) + 1) |cp| set.value_ptr.*[cp] = true;
+        }
+    }
+    // UnicodeData.txt's tenth field is Bidi_Mirrored, Y or N.
+    const mirrored = try filled(gpa, bool, false);
+    var rows = std.mem.splitScalar(u8, try ucd.read("UnicodeData.txt"), '\n');
+    while (rows.next()) |row| {
+        if (trim(row).len == 0) continue;
+        var fields = std.mem.splitScalar(u8, row, ';');
+        const cp = try std.fmt.parseInt(u21, fields.next().?, 16);
+        for (0..8) |_| _ = fields.next() orelse return error.ShortUnicodeDataLine;
+        if (std.mem.eql(u8, fields.next() orelse return error.ShortUnicodeDataLine, "Y")) mirrored[cp] = true;
+    }
+    try sets.put(gpa, "Bidi_Mirrored", mirrored);
+
+    const names = try gpa.dupe([]const u8, sets.keys());
+    std.mem.sort([]const u8, names, {}, struct {
+        fn less(_: void, x: []const u8, y: []const u8) bool {
+            return std.ascii.lessThanIgnoreCase(x, y);
+        }
+    }.less);
+    try w.writeAll(
+        \\
+        \\/// Every binary property of PropList.txt, DerivedCoreProperties.txt, emoji-data.txt and
+        \\/// DerivedNormalizationProps.txt, and Bidi_Mirrored (UnicodeData.txt): their long names in
+        \\/// lower case, in order of name.
+        \\pub const Binary = enum(u8) {
+        \\
+    );
+    for (names) |name| try w.print("    {f},\n", .{std.zig.fmtId(try std.ascii.allocLowerString(gpa, name))});
+    try w.writeAll("};\n\n/// Each binary property's code points, indexed by `Binary`.\npub const binary = [_][]const [2]u21{\n");
+    for (names) |name| {
+        try w.writeAll("    ");
+        try writeRanges(w, sets.get(name).?);
+        try w.writeAll(",\n");
+    }
+    try w.writeAll("};\n");
+    return names;
+}
+
+/// A data line's fields, trimmed, its comment gone; null for a line with none.
+fn aliasFields(gpa: Allocator, raw: []const u8) !?[]const []const u8 {
+    const data = trim(if (std.mem.findScalar(u8, raw, '#')) |hash| raw[0..hash] else raw);
+    if (data.len == 0) return null;
+    var out: std.ArrayList([]const u8) = .empty;
+    var parts = std.mem.splitScalar(u8, data, ';');
+    while (parts.next()) |part| if (trim(part).len != 0) try out.append(gpa, trim(part));
+    return try out.toOwnedSlice(gpa);
+}
+
+/// The names and aliases of what a regular expression's `\p{...}` names, exactly as
+/// PropertyAliases.txt and PropertyValueAliases.txt write them, each with the index of what it
+/// names: General_Category, Script and Script_Extensions (0, 1, 2) and the binary properties (by
+/// `binary`, their long names in `Binary`'s order); General_Category's values and groups; scripts.
+fn writeNames(gpa: Allocator, ucd: Ucd, w: *std.Io.Writer, aliases: Aliases, binary: []const []const u8) !void {
+    const enumerated_properties = [_][]const u8{ "General_Category", "Script", "Script_Extensions" };
+    var properties: std.Io.Writer.Allocating = .init(gpa);
+    var binaries: std.Io.Writer.Allocating = .init(gpa);
+    const named = try gpa.alloc(bool, binary.len);
+    @memset(named, false);
+    var lines = std.mem.splitScalar(u8, try ucd.read("PropertyAliases.txt"), '\n');
+    while (lines.next()) |raw| {
+        const fields = try aliasFields(gpa, raw) orelse continue;
+        if (fields.len < 2) return error.ShortAliasLine;
+        const long = fields[1];
+        const into: *std.Io.Writer, const value = for (enumerated_properties, 0..) |name, i| {
+            if (std.mem.eql(u8, name, long)) break .{ &properties.writer, i };
+        } else for (binary, 0..) |name, i| {
+            if (std.mem.eql(u8, name, long)) {
+                named[i] = true;
+                break .{ &binaries.writer, i };
+            }
+        } else continue;
+        for (fields) |name| try into.print("    .{{ .name = \"{s}\", .value = {d} }},\n", .{ name, value });
+    }
+    for (binary, named) |name, found| if (!found) {
+        std.log.err("PropertyAliases.txt does not name the binary property {s}", .{name});
+        return error.UnknownProperty;
+    };
+
+    const unknown = for (aliases.scripts, 0..) |s, i| {
+        if (std.mem.eql(u8, s[1], "Unknown")) break i;
+    } else return error.NoUnknownScript;
+    const order = try scriptOrder(gpa, aliases, unknown);
+    var categories: std.Io.Writer.Allocating = .init(gpa);
+    var groups: std.Io.Writer.Allocating = .init(gpa);
+    var scripts: std.Io.Writer.Allocating = .init(gpa);
+    lines = std.mem.splitScalar(u8, try ucd.read("PropertyValueAliases.txt"), '\n');
+    while (lines.next()) |raw| {
+        const fields = try aliasFields(gpa, raw) orelse continue;
+        if (fields.len < 3) continue;
+        const into: *std.Io.Writer, const value: usize = if (std.mem.eql(u8, fields[0], "sc"))
+            .{ &scripts.writer, try scriptIndex(gpa, aliases, order, fields[2]) }
+        else if (std.mem.eql(u8, fields[0], "gc"))
+            try categoryIndex(gpa, fields[2], &categories.writer, &groups.writer)
+        else
+            continue;
+        for (fields[1..]) |name| try into.print("    .{{ .name = \"{s}\", .value = {d} }},\n", .{ name, value });
+    }
+    try w.print(
+        \\
+        \\/// A name or alias as the UCD writes it, and the index of what it names.
+        \\pub const Alias = struct {{ name: []const u8, value: u8 }};
+        \\
+        \\/// General_Category, Script and Script_Extensions (0, 1, 2), by PropertyAliases.txt.
+        \\pub const property_names = [_]Alias{{
+        \\{s}}};
+        \\
+        \\/// The binary properties, by PropertyAliases.txt, indexed by `Binary`.
+        \\pub const binary_names = [_]Alias{{
+        \\{s}}};
+        \\
+        \\/// General_Category's values, indexed by its enum.
+        \\pub const general_category_names = [_]Alias{{
+        \\{s}}};
+        \\
+        \\/// General_Category's groups, indexed by `classes.GeneralCategory.Group`.
+        \\pub const general_category_group_names = [_]Alias{{
+        \\{s}}};
+        \\
+        \\/// The scripts, indexed by `Script`.
+        \\pub const script_names = [_]Alias{{
+        \\{s}}};
+        \\
+    , .{ properties.written(), binaries.written(), categories.written(), groups.written(), scripts.written() });
+}
+
+/// The General_Category value or group whose long name is `long`, and the table it goes in.
+fn categoryIndex(gpa: Allocator, long: []const u8, categories: *std.Io.Writer, groups: *std.Io.Writer) !struct { *std.Io.Writer, usize } {
+    const want = try loose(gpa, long);
+    for (std.enums.values(classes.GeneralCategory), 0..) |gc, i| {
+        if (std.mem.eql(u8, try loose(gpa, @tagName(gc)), want)) return .{ categories, i };
+    }
+    for (std.enums.values(classes.GeneralCategory.Group), 0..) |group, i| {
+        if (std.mem.eql(u8, try loose(gpa, @tagName(group)), want)) return .{ groups, i };
+    }
+    std.log.err("gc={s} is neither a General_Category value nor a group", .{long});
+    return error.UnknownValue;
 }
 
 /// `source` as `zig fmt` writes it, so the files pass the format check.
