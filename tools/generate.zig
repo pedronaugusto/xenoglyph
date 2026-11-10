@@ -752,7 +752,7 @@ fn writeRanges(w: *std.Io.Writer, in: []const bool) !void {
 fn rangesFile(gpa: Allocator, ucd: Ucd, p: Properties, aliases: Aliases) ![]const u8 {
     var out: std.Io.Writer.Allocating = .init(gpa);
     const w = &out.writer;
-    try plainHeader(w, "Each property value's code points as sorted ranges, the names and aliases a regular expression's classes name them by, and the simple case folding orbits", "extracted/DerivedGeneralCategory.txt, Scripts.txt, ScriptExtensions.txt, PropList.txt, DerivedCoreProperties.txt, emoji/emoji-data.txt, DerivedNormalizationProps.txt, UnicodeData.txt, PropertyAliases.txt, PropertyValueAliases.txt, CaseFolding.txt");
+    try plainHeader(w, "Each property value's code points as sorted ranges, the names and aliases a regular expression's classes name them by, and the simple case folding orbits", "extracted/DerivedGeneralCategory.txt, Scripts.txt, ScriptExtensions.txt, auxiliary/GraphemeBreakProperty.txt, auxiliary/WordBreakProperty.txt, auxiliary/SentenceBreakProperty.txt, PropList.txt, DerivedCoreProperties.txt, emoji/emoji-data.txt, DerivedNormalizationProps.txt, UnicodeData.txt, PropertyAliases.txt, PropertyValueAliases.txt, CaseFolding.txt");
     const in = try gpa.alloc(bool, code_points);
 
     try w.writeAll("\n/// General_Category: indexed by its enum.\npub const general_category = [_][]const [2]u21{\n");
@@ -793,6 +793,21 @@ fn rangesFile(gpa: Allocator, ucd: Ucd, p: Properties, aliases: Aliases) ![]cons
         try w.writeAll(",\n");
     }
     try w.writeAll("};\n");
+
+    inline for (.{
+        .{ "grapheme_break", "Grapheme_Cluster_Break", classes.GraphemeBreak, p.grapheme_break },
+        .{ "word_break", "Word_Break", classes.WordBreak, p.word_break },
+        .{ "sentence_break", "Sentence_Break", classes.SentenceBreak, p.sentence_break },
+    }) |property| {
+        try w.print("\n/// {s}: indexed by `classes.{s}`.\npub const {s} = [_][]const [2]u21{{\n", .{ property[1], @typeName(property[2])[std.mem.findScalarLast(u8, @typeName(property[2]), '.').? + 1 ..], property[0] });
+        for (std.enums.values(property[2])) |value| {
+            for (property[3], in) |v, *x| x.* = v == value;
+            try w.writeAll("    ");
+            try writeRanges(w, in);
+            try w.writeAll(",\n");
+        }
+        try w.writeAll("};\n");
+    }
 
     try writeNames(gpa, ucd, w, aliases, try writeBinary(gpa, ucd, w));
 
@@ -908,7 +923,7 @@ fn aliasFields(gpa: Allocator, raw: []const u8) !?[]const []const u8 {
 /// names: General_Category, Script and Script_Extensions (0, 1, 2) and the binary properties (by
 /// `binary`, their long names in `Binary`'s order); General_Category's values and groups; scripts.
 fn writeNames(gpa: Allocator, ucd: Ucd, w: *std.Io.Writer, aliases: Aliases, binary: []const []const u8) !void {
-    const enumerated_properties = [_][]const u8{ "General_Category", "Script", "Script_Extensions" };
+    const enumerated_properties = [_][]const u8{ "General_Category", "Script", "Script_Extensions", "Grapheme_Cluster_Break", "Word_Break", "Sentence_Break" };
     var properties: std.Io.Writer.Allocating = .init(gpa);
     var binaries: std.Io.Writer.Allocating = .init(gpa);
     const named = try gpa.alloc(bool, binary.len);
@@ -940,6 +955,9 @@ fn writeNames(gpa: Allocator, ucd: Ucd, w: *std.Io.Writer, aliases: Aliases, bin
     var categories: std.Io.Writer.Allocating = .init(gpa);
     var groups: std.Io.Writer.Allocating = .init(gpa);
     var scripts: std.Io.Writer.Allocating = .init(gpa);
+    var grapheme_breaks: std.Io.Writer.Allocating = .init(gpa);
+    var word_breaks: std.Io.Writer.Allocating = .init(gpa);
+    var sentence_breaks: std.Io.Writer.Allocating = .init(gpa);
     lines = std.mem.splitScalar(u8, try ucd.read("PropertyValueAliases.txt"), '\n');
     while (lines.next()) |raw| {
         const fields = try aliasFields(gpa, raw) orelse continue;
@@ -948,6 +966,12 @@ fn writeNames(gpa: Allocator, ucd: Ucd, w: *std.Io.Writer, aliases: Aliases, bin
             .{ &scripts.writer, try scriptIndex(gpa, aliases, order, fields[2]) }
         else if (std.mem.eql(u8, fields[0], "gc"))
             try categoryIndex(gpa, fields[2], &categories.writer, &groups.writer)
+        else if (std.mem.eql(u8, fields[0], "GCB"))
+            .{ &grapheme_breaks.writer, try breakIndex(gpa, classes.GraphemeBreak, fields[2]) orelse continue }
+        else if (std.mem.eql(u8, fields[0], "WB"))
+            .{ &word_breaks.writer, try breakIndex(gpa, classes.WordBreak, fields[2]) orelse continue }
+        else if (std.mem.eql(u8, fields[0], "SB"))
+            .{ &sentence_breaks.writer, try breakIndex(gpa, classes.SentenceBreak, fields[2]) orelse continue }
         else
             continue;
         for (fields[1..]) |name| try into.print("    .{{ .name = \"{s}\", .value = {d} }},\n", .{ name, value });
@@ -957,7 +981,8 @@ fn writeNames(gpa: Allocator, ucd: Ucd, w: *std.Io.Writer, aliases: Aliases, bin
         \\/// A name or alias as the UCD writes it, and the index of what it names.
         \\pub const Alias = struct {{ name: []const u8, value: u8 }};
         \\
-        \\/// General_Category, Script and Script_Extensions (0, 1, 2), by PropertyAliases.txt.
+        \\/// General_Category, Script, Script_Extensions, Grapheme_Cluster_Break, Word_Break and
+        \\/// Sentence_Break (0 to 5), by PropertyAliases.txt.
         \\pub const property_names = [_]Alias{{
         \\{s}}};
         \\
@@ -977,7 +1002,19 @@ fn writeNames(gpa: Allocator, ucd: Ucd, w: *std.Io.Writer, aliases: Aliases, bin
         \\pub const script_names = [_]Alias{{
         \\{s}}};
         \\
-    , .{ properties.written(), binaries.written(), categories.written(), groups.written(), scripts.written() });
+        \\/// Grapheme_Cluster_Break's values, indexed by `classes.GraphemeBreak`.
+        \\pub const grapheme_break_names = [_]Alias{{
+        \\{s}}};
+        \\
+        \\/// Word_Break's values, indexed by `classes.WordBreak`.
+        \\pub const word_break_names = [_]Alias{{
+        \\{s}}};
+        \\
+        \\/// Sentence_Break's values, indexed by `classes.SentenceBreak`.
+        \\pub const sentence_break_names = [_]Alias{{
+        \\{s}}};
+        \\
+    , .{ properties.written(), binaries.written(), categories.written(), groups.written(), scripts.written(), grapheme_breaks.written(), word_breaks.written(), sentence_breaks.written() });
 }
 
 /// The General_Category value or group whose long name is `long`, and the table it goes in.
@@ -990,6 +1027,21 @@ fn categoryIndex(gpa: Allocator, long: []const u8, categories: *std.Io.Writer, g
         if (std.mem.eql(u8, try loose(gpa, @tagName(group)), want)) return .{ groups, i };
     }
     std.log.err("gc={s} is neither a General_Category value nor a group", .{long});
+    return error.UnknownValue;
+}
+
+/// The value of the break property `E` whose long name is `long`, or null for one
+/// PropertyValueAliases.txt keeps that no code point has any more (Grapheme_Cluster_Break's and
+/// Word_Break's E_Base, E_Modifier, Glue_After_Zwj and E_Base_GAZ), which names nothing.
+fn breakIndex(gpa: Allocator, comptime E: type, long: []const u8) !?usize {
+    const want = try loose(gpa, long);
+    for (std.enums.values(E), 0..) |value, i| {
+        if (std.mem.eql(u8, try loose(gpa, @tagName(value)), want)) return i;
+    }
+    for ([_][]const u8{ "E_Base", "E_Modifier", "Glue_After_Zwj", "E_Base_GAZ" }) |obsolete| {
+        if (std.mem.eql(u8, try loose(gpa, obsolete), want)) return null;
+    }
+    std.log.err("{s} is not a value of {s}", .{ long, @typeName(E) });
     return error.UnknownValue;
 }
 

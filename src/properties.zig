@@ -74,6 +74,21 @@ pub fn coreRanges(comptime property: std.meta.FieldEnum(Core)) []const Range {
     return binaryRanges(@field(Binary, @tagName(property)));
 }
 
+/// Every code point whose Grapheme_Cluster_Break is `v`, as sorted ranges.
+pub fn graphemeBreakRanges(v: GraphemeBreak) []const Range {
+    return data.ranges.grapheme_break[@backingInt(v)];
+}
+
+/// Every code point whose Word_Break is `v`, as sorted ranges.
+pub fn wordBreakRanges(v: WordBreak) []const Range {
+    return data.ranges.word_break[@backingInt(v)];
+}
+
+/// Every code point whose Sentence_Break is `v`, as sorted ranges.
+pub fn sentenceBreakRanges(v: SentenceBreak) []const Range {
+    return data.ranges.sentence_break[@backingInt(v)];
+}
+
 /// Every White_Space code point (PropList.txt), as sorted ranges.
 pub fn whiteSpaceRanges() []const Range {
     return binaryRanges(.white_space);
@@ -93,17 +108,23 @@ pub const Property = union(enum) {
     general_category,
     script,
     script_extensions,
+    grapheme_cluster_break,
+    word_break,
+    sentence_break,
     binary: Binary,
 };
 
-/// The property `name` names (General_Category, Script, Script_Extensions or a binary one), by
-/// PropertyAliases.txt; null for any other name.
+/// The property `name` names (General_Category, Script, Script_Extensions, the three break
+/// properties or a binary one), by PropertyAliases.txt; null for any other name.
 pub fn propertyNamed(name: []const u8, match: NameMatch) ?Property {
     if (named(&data.ranges.property_names, name, match)) |i| return switch (i) {
         0 => .general_category,
         1 => .script,
         2 => .script_extensions,
-        else => aegis.assert.never("property_names holds General_Category, Script and Script_Extensions"),
+        3 => .grapheme_cluster_break,
+        4 => .word_break,
+        5 => .sentence_break,
+        else => aegis.assert.never("property_names holds General_Category, Script, Script_Extensions and the three break properties"),
     };
     return .{ .binary = binaryNamed(name, match) orelse return null };
 }
@@ -116,6 +137,22 @@ pub fn binaryNamed(name: []const u8, match: NameMatch) ?Binary {
 /// The script `name` names, by PropertyValueAliases.txt (`Greek`, `Grek`, `Qaai`).
 pub fn scriptNamed(name: []const u8, match: NameMatch) ?Script {
     return entry(Script, named(&data.ranges.script_names, name, match) orelse return null);
+}
+
+/// The Grapheme_Cluster_Break value `name` names, by PropertyValueAliases.txt (`RI`,
+/// `Regional_Indicator`); null for a value no code point has any more (`E_Base`).
+pub fn graphemeBreakNamed(name: []const u8, match: NameMatch) ?GraphemeBreak {
+    return entry(GraphemeBreak, named(&data.ranges.grapheme_break_names, name, match) orelse return null);
+}
+
+/// The Word_Break value `name` names, by PropertyValueAliases.txt (`HL`, `Hebrew_Letter`).
+pub fn wordBreakNamed(name: []const u8, match: NameMatch) ?WordBreak {
+    return entry(WordBreak, named(&data.ranges.word_break_names, name, match) orelse return null);
+}
+
+/// The Sentence_Break value `name` names, by PropertyValueAliases.txt (`SC`, `SContinue`).
+pub fn sentenceBreakNamed(name: []const u8, match: NameMatch) ?SentenceBreak {
+    return entry(SentenceBreak, named(&data.ranges.sentence_break_names, name, match) orelse return null);
 }
 
 /// A General_Category value, or one of its groups.
@@ -360,6 +397,41 @@ test "each group's and binary property's ranges hold exactly the code points the
     try std.testing.expect(holds(binaryRanges(.hex_digit), 0xff21)); // FULLWIDTH LATIN CAPITAL LETTER A
     try std.testing.expect(!holds(binaryRanges(.ascii_hex_digit), 0xff21));
     try std.testing.expect(holds(binaryRanges(.changes_when_nfkc_casefolded), 'A'));
+}
+
+test "each break property value's ranges hold exactly the code points the lookups give it" {
+    inline for (.{ .{ GraphemeBreak, graphemeBreakRanges, graphemeBreak }, .{ WordBreak, wordBreakRanges, wordBreak }, .{ SentenceBreak, sentenceBreakRanges, sentenceBreak } }) |property| {
+        for (std.enums.values(property[0])) |value| {
+            try expectRangesOf(property[1](value), value, struct {
+                fn want(v: property[0], cp: u21) bool {
+                    return property[2](cp) == v;
+                }
+            }.want);
+        }
+    }
+}
+
+test "the break properties and their values are found by the UCD's names" {
+    try std.testing.expectEqual(Property.grapheme_cluster_break, propertyNamed("GCB", .exact).?);
+    try std.testing.expectEqual(Property.grapheme_cluster_break, propertyNamed("grapheme_cluster_break", .loose).?);
+    try std.testing.expectEqual(Property.word_break, propertyNamed("WB", .exact).?);
+    try std.testing.expectEqual(Property.sentence_break, propertyNamed("sentence_break", .loose).?);
+    try std.testing.expectEqual(GraphemeBreak.regional_indicator, graphemeBreakNamed("RI", .exact).?);
+    try std.testing.expectEqual(GraphemeBreak.regional_indicator, graphemeBreakNamed("regional_indicator", .loose).?);
+    try std.testing.expectEqual(GraphemeBreak.lvt, graphemeBreakNamed("lvt", .loose).?);
+    try std.testing.expectEqual(GraphemeBreak.zwj, graphemeBreakNamed("ZWJ", .exact).?);
+    try std.testing.expectEqual(WordBreak.hebrew_letter, wordBreakNamed("hebrewletter", .loose).?);
+    try std.testing.expectEqual(WordBreak.hebrew_letter, wordBreakNamed("HL", .exact).?);
+    try std.testing.expectEqual(WordBreak.w_seg_space, wordBreakNamed("WSegSpace", .exact).?);
+    try std.testing.expectEqual(WordBreak.extend_num_let, wordBreakNamed("ExtendNumLet", .exact).?);
+    try std.testing.expectEqual(SentenceBreak.s_continue, sentenceBreakNamed("SContinue", .exact).?);
+    try std.testing.expectEqual(SentenceBreak.close, sentenceBreakNamed("Close", .exact).?);
+    try std.testing.expectEqual(SentenceBreak.lower, sentenceBreakNamed("lower", .loose).?);
+    // A value no code point has any more names nothing.
+    try std.testing.expectEqual(@as(?GraphemeBreak, null), graphemeBreakNamed("E_Base", .exact));
+    try std.testing.expectEqual(@as(?WordBreak, null), wordBreakNamed("Glue_After_Zwj", .exact));
+    try std.testing.expect(holds(graphemeBreakRanges(.regional_indicator), 0x1f1e6));
+    try std.testing.expect(holds(wordBreakRanges(.hebrew_letter), 0x5d0));
 }
 
 test "properties and values are found by every name the UCD gives them, exactly or loosely" {

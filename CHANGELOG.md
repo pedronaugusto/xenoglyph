@@ -11,11 +11,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - aegis 0.3: its contracts are `assert.invariant`, the one always-on assertion, where `assert.pre` and `assert.post` were its other names.
 - The types of public structs' fields are public themselves, so a caller can name what it holds: `bidi.Kind`, `canonical`'s `Long`, `collation.Elements`, `encoding.Iso2022Event`, `encoding.IsoEncode` and `Encoder.Held`, `grapheme.Class`, `line.Behind`, `case`'s `Behind` and `Queue`, `normalize.Expansion`, and `security.Ascii` and `security.Mapped`.
 - Internally, offsets and widths are computed in their aegis units, buffers kept by hand are `aegis.bounded.Array`, and the bidi stack is a bounded array of its own; output is unchanged.
+- `properties.Property`, what `propertyNamed` returns, grew three cases: `grapheme_cluster_break`, `word_break` and `sentence_break` (Added, below). A switch over it names them.
 - Mixed operators are parenthesized where Zig master refuses them as ambiguous (`a >> b & c`, `a | b << c`, `a * b % c`, `a and b or c`): the parentheses say what Zig 0.17 already did, and nothing changes at runtime.
 
 
 ### Added
 
+- Grapheme_Cluster_Break, Word_Break and Sentence_Break as a regular expression's class reads them: `properties.graphemeBreakRanges`, `wordBreakRanges` and `sentenceBreakRanges`, each value's code points as sorted ranges, and `graphemeBreakNamed`, `wordBreakNamed` and `sentenceBreakNamed`, each value by every name PropertyValueAliases.txt gives it, exactly or loosely. A value it keeps that no code point has any more (`E_Base`, `E_Modifier`, `Glue_After_Zwj`, `E_Base_GAZ`) names nothing. Generated with the other ranges.
 - Each property value's code points as sorted ranges, for a caller that needs the whole set (a regular expression's class): `properties.generalCategoryRanges`, `scriptRanges`, `scriptExtensionRanges`, `coreRanges` (DerivedCoreProperties' binary properties) and `whiteSpaceRanges`; and `case.simpleFoldOrbit`, every code point that simple case folding takes to the same one. Generated with the other tables (`src/data/ranges.zig`).
 - Every binary property of PropList.txt, DerivedCoreProperties.txt, emoji-data.txt and DerivedNormalizationProps.txt, and Bidi_Mirrored, as `properties.Binary` with `binaryRanges`; General_Category's groups (L, LC, M, N, P, S, Z, C) as `GeneralCategory.Group`, with `within` and `generalCategoryGroupRanges`.
 - Properties and values found by name, by every name and alias PropertyAliases.txt and PropertyValueAliases.txt give them, exactly (as ECMA-262 compares them) or by UAX #44's LM3 (as UTS #18 does): `propertyNamed`, `binaryNamed`, `scriptNamed`, `generalCategoryNamed`. ucd/ carries PropertyAliases.txt 18.0.0.
