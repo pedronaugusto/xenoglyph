@@ -25,6 +25,12 @@ safety library, and on nothing else: a project that depends on it builds no
 generator and reads no Unicode data files. The tables are Zig source in the
 package.
 
+## Stability
+
+xenoglyph is 0.x and tracks Zig 0.17.x. A breaking change comes only in a minor release
+(0.5 to 0.6), with a CHANGELOG entry saying what changed and what to write instead; a
+patch release never breaks.
+
 ## Usage
 
 Grapheme clusters are what a reader takes for one character, and what a
