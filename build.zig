@@ -105,6 +105,14 @@ pub fn dev(b: *std.Build, tools: type) void {
     b.getInstallStep().dependOn(&tests.step);
     b.getInstallStep().dependOn(&example.step);
 
+    // The benchmarks' imports through preflight's typed hook, whose type is
+    // the dev dependency's, which only `dev` is given (`tools`).
+    const bench = struct {
+        const hook: tools.preflight.Bench.Imports = .{ .make = make };
+        fn make(_: *const tools.preflight.Bench.Imports, owner: *std.Build, chosen: std.Build.ResolvedTarget, mode: std.lang.Optimize) []const std.Build.Module.Import {
+            return benchImports(owner, chosen, mode);
+        }
+    };
     tools.preflight.addCi(b, p, .{
         .tests = test_step,
         .portable_tests = true,
@@ -121,7 +129,7 @@ pub fn dev(b: *std.Build, tools: type) void {
                 .{ .name = "collation", .source = "bench/collation.zig" },
                 .{ .name = "security", .source = "bench/security.zig" },
             },
-            .imports = benchImports,
+            .imports = &bench.hook,
             .target = target,
             .optimize = optimize,
         },

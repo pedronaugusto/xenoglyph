@@ -8,6 +8,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Pins aegis c8982a8, still 0.2.4: six additive commits after 3c0b13e (the role declarations a linter reads, `lint_rules`), the aegis the development build's preflight selects. Nothing xenoglyph calls changed.
 - aegis 0.3: its contracts are `assert.invariant`, the one always-on assertion, where `assert.pre` and `assert.post` were its other names.
 - The types of public structs' fields are public themselves, so a caller can name what it holds: `bidi.Kind`, `canonical`'s `Long`, `collation.Elements`, `encoding.Iso2022Event`, `encoding.IsoEncode` and `Encoder.Held`, `grapheme.Class`, `line.Behind`, `case`'s `Behind` and `Queue`, `normalize.Expansion`, and `security.Ascii` and `security.Mapped`.
 - Internally, offsets and widths are computed in their aegis units, buffers kept by hand are `aegis.bounded.Array`, and the bidi stack is a bounded array of its own; output is unchanged.
