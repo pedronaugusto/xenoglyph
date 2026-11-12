@@ -4,7 +4,7 @@ xenoglyph handles Unicode text in Zig: grapheme clusters, forward and
 backward, words and sentences (UAX #29), line break opportunities (UAX #14),
 normalization (UAX #15), NFKC_Casefold and NFKC_Simple_Casefold, case mapping, folding and caseless
 matching, how many terminal cells text takes, internationalized domain names
-(UTS #46) and Punycode, bidirectional text (UAX #9) for layout, the
+(UTS #46, and IDNA2008's validity as written) and Punycode, bidirectional text (UAX #9) for layout, the
 character properties those rest on, from the
 Unicode Character Database 18.0.0, collation in CLDR's root order (UTS #10),
 the security mechanisms of UTS #39 (confusables, mixed scripts, restriction
@@ -584,9 +584,20 @@ disallowed code points, the STD3 rules, hyphens, a leading combining mark, bad
 Punycode, the Bidi rule of RFC 5893 and the ContextJ rules of RFC 5892, and DNS
 lengths; `toAscii` writes nothing when anything failed. `idna.Options` holds
 UTS #46's flags, its strict conformance settings by default, and
-`Options.url` is the URL Standard's. A name is worked on in buffers on the
+`Options.url` is the URL Standard's, whose host parser then refuses the
+forbidden domain code points itself. A name is worked on in buffers on the
 stack, up to `idna.max_code_points` once mapped (no DNS name comes near it).
 `punycode.encode` and `punycode.decode` are the encoding alone.
+
+`idna.check2008(name)` is IDNA2008 with no mapping: whether a name is valid as
+it is written, which is what JSON Schema's `idn-hostname` asks. Nothing is
+mapped, folded or normalized; each label is checked against RFC 5892's derived
+property values (`idna.status2008(cp)`: PVALID, CONTEXTJ, CONTEXTO, DISALLOWED,
+UNASSIGNED), derived by the RFC's algorithm from this Unicode version, with
+the ContextJ and ContextO rules of its Appendix A, NFC, hyphens, a leading
+combining mark, the Bidi rule, and lengths in A-label form; an `xn--` label
+must decode to a valid U-label that encodes back to it. It returns
+`idna.Failures2008`.
 
 ### Width
 
@@ -688,6 +699,7 @@ it covers. Every iterator's `offset()` is where its next segment starts.
 | `emoji(cp)` | Emoji, Emoji_Presentation, Emoji_Modifier, Emoji_Modifier_Base, Emoji_Component, Extended_Pictographic, and whether it has emoji variation sequences |
 | `core(cp)` | The binary properties of DerivedCoreProperties.txt: Alphabetic, Lowercase, Uppercase, Cased, Case_Ignorable, the Changes_When properties, ID_Start, ID_Continue, XID_Start, XID_Continue, Default_Ignorable_Code_Point, Grapheme_Base, Grapheme_Extend, Math |
 | `idna.toAscii(name, writer, options)`, `idna.toUnicode` | A domain name for DNS or for showing (UTS #46), and what failed |
+| `idna.check2008(name)`, `idna.status2008(cp)` | Whether a name is valid IDNA2008 as written, and what failed; a code point's derived property (RFC 5892) |
 | `punycode.encode(code_points, writer)`, `punycode.decode(text, out)` | Punycode (RFC 3492) |
 | `bidiClass`, `joiningType` | Bidi_Class (with the defaults of unassigned code points), Joining_Type |
 | `bidi.Paragraph.resolve(text, start, options, buffers)` | A paragraph's direction and the level of every byte (UAX #9) |
@@ -755,6 +767,10 @@ them all for wasm32-freestanding.
 - The [WHATWG Encoding Standard](https://encoding.spec.whatwg.org/)'s
   `encodings.json` and index files, under the BSD 3-Clause licence, and
   Unicode's CP437.TXT mapping.
+- For the tests only: IANA's IDNA2008 property table for Unicode 12.0.0
+  (`ucd/iana`, a protocol registry under CC0 1.0), and
+  [JSON-Schema-Test-Suite](https://github.com/json-schema-org/JSON-Schema-Test-Suite)
+  23.2.0's idn-hostname cases (`ucd/json-schema`, MIT).
 - [bay](https://github.com/pedronaugusto/bay) runs xenoglyph's development.
   [preflight](https://github.com/pedronaugusto/preflight) (the source checks,
   the tests and CI) and [shakedown](https://github.com/pedronaugusto/shakedown)
@@ -778,7 +794,10 @@ with a boundary added before a skin tone that follows no modifier base, and with
 cluster under both modifier rules, and each of the 3,972 fully-qualified ones
 and components is 2 columns. All 6,396 test lines of IdnaTestV2.txt pass, toUnicode
 and toASCII with Nontransitional Processing and every check on (a line that
-expects a failure is checked for one, as the file allows). BidiTest.txt passes
+expects a failure is checked for one, as the file allows). The IDNA2008 derived
+properties equal IANA's table (for Unicode 12.0.0, its newest) at every one of
+the code points it assigns a value, and `check2008` answers all 50 of
+JSON-Schema-Test-Suite 23.2.0's idn-hostname cases as they expect. BidiTest.txt passes
 every case at every paragraph direction its bits name (levels after L1 and the
 visual order), and all of BidiCharacterTest.txt: paragraph level, levels and
 visual order, through `Paragraph.resolve`, `line` and `visual`. The bracket and

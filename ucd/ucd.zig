@@ -26,6 +26,11 @@ pub const special_casing = @embedFile("SpecialCasing.txt");
 pub const case_folding = @embedFile("CaseFolding.txt");
 pub const derived_normalization_props = @embedFile("DerivedNormalizationProps.txt");
 pub const idna_test = @embedFile("idna/IdnaTestV2.txt");
+/// IANA's IDNA2008 derived property table for Unicode 12.0.0, its newest
+/// (idna-tables-12.0.0, a protocol registry under CC0 1.0: iana/CC0-1.0.txt).
+pub const iana_idna_properties = @embedFile("iana/idna-tables-properties-12.0.0.csv");
+/// JSON-Schema-Test-Suite 23.2.0's idn-hostname format cases (MIT: json-schema/LICENSE).
+pub const json_schema_idn_hostname = @embedFile("json-schema/idn-hostname.json");
 pub const bidi_class = @embedFile("extracted/DerivedBidiClass.txt");
 pub const joining_type = @embedFile("extracted/DerivedJoiningType.txt");
 pub const bidi_test = @embedFile("BidiTest.txt");

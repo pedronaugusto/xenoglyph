@@ -15,6 +15,7 @@ test {
     _ = @import("collation.zig");
     _ = @import("security.zig");
     _ = @import("testing/idna_test.zig");
+    _ = @import("testing/idna2008_test.zig");
     _ = @import("testing/conformance_test.zig");
     _ = @import("testing/properties_test.zig");
     _ = @import("testing/fuzz_test.zig");

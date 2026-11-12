@@ -451,7 +451,23 @@ pub const Idna = packed struct(u16) {
     virama: bool = false,
     /// General_Category=Mark.
     mark: bool = false,
-    _: u3 = 0,
+    /// The code point's IDNA2008 derived property (RFC 5892).
+    idna2008: Idna2008 = .disallowed,
+};
+
+/// A code point's derived property value under IDNA2008 (RFC 5892 §2 and
+/// §3): what a label in an internationalized domain name may hold, with no
+/// UTS #46 mapping.
+pub const Idna2008 = enum(u3) {
+    /// Allowed anywhere in a label.
+    pvalid,
+    /// Allowed where its ContextJ rule holds (RFC 5892 Appendix A.1, A.2).
+    contextj,
+    /// Allowed where its ContextO rule holds (Appendix A.3 to A.9).
+    contexto,
+    disallowed,
+    /// Not assigned in this version of Unicode.
+    unassigned,
 };
 
 /// A character encoding: the WHATWG Encoding Standard's, in its order, and
