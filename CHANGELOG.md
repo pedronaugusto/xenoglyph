@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Breaking
+
+- `encoding.Encoder.held` holds the encoder's pending bytes as an `encoding.Encoder.Held` (a bounded array), where it was a `[4]u8` beside `encoding.Encoder.held_len`, which is gone.
+- Fields whose types became public (Changed, below) now name those types: `bidi.Scratch.kind`, `case.Iterator().behind`, `line.Iterator.behind`, `encoding.Decoder.iso_output_state`, `encoding.Encoder.iso` and `security.Skeleton.steps`. Their values are what they were; a caller that spelled the old type out (by `@TypeOf`) sees the new name.
+
 ### Added
 
 - `idna.check2008(name)`: IDNA2008's validity of a name as written (RFC 5891 §5.3 to 5.5, RFC 5892, RFC 5893), with no UTS #46 mapping: each label against RFC 5892's derived property values with the ContextJ and ContextO rules of its Appendix A (A.3 to A.9 new), NFC, hyphens, a leading combining mark, the Bidi rule, and lengths in A-label form; an `xn--` label (in any case) must decode to a valid U-label that encodes back to it. `idna.Failures2008` says what failed. JSON Schema's `idn-hostname`.
@@ -13,7 +18,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- Pins aegis c8982a8, still 0.2.4: six additive commits after 3c0b13e (the role declarations a linter reads, `lint_rules`), the aegis the development build's preflight selects. Nothing xenoglyph calls changed.
+- Pins aegis a0c467e, still 0.2.4: additive commits after 3c0b13e (the role declarations a linter reads, `lint_rules`; `Secret.make`), the aegis the development build's preflight selects. Nothing xenoglyph calls changed.
 - aegis 0.3: its contracts are `assert.invariant`, the one always-on assertion, where `assert.pre` and `assert.post` were its other names.
 - The types of public structs' fields are public themselves, so a caller can name what it holds: `bidi.Kind`, `canonical`'s `Long`, `collation.Elements`, `encoding.Iso2022Event`, `encoding.IsoEncode` and `Encoder.Held`, `grapheme.Class`, `line.Behind`, `case`'s `Behind` and `Queue`, `normalize.Expansion`, and `security.Ascii` and `security.Mapped`.
 - Internally, offsets and widths are computed in their aegis units, buffers kept by hand are `aegis.bounded.Array`, and the bidi stack is a bounded array of its own; output is unchanged.

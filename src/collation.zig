@@ -52,7 +52,7 @@ pub const Options = struct {
 /// One collation element as the levels read it. A primary weight is the
 /// table's 16 bits in the high half; the low half is nonzero only in the
 /// elements of a number, under `numeric`.
-const Element = struct {
+pub const Element = struct {
     primary: u32,
     secondary: u16,
     tertiary: u8,

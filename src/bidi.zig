@@ -827,7 +827,9 @@ fn Context(comptime Source: type) type {
                 const b = c.source.bracket(at, c.source.at(at).code_point) orelse continue;
                 if (b.opening) {
                     var open: Open = .{ .id = b.id, .at = at };
-                    stack.append(&open) catch break :find;
+                    // BD16: past 63 open brackets, nothing more in the sequence pairs
+                    const pushed = if (stack.append(&open)) |_| true else |_| false;
+                    if (!pushed) break :find;
                 } else {
                     const opened = stack.constItems();
                     var k = opened.len;
@@ -839,7 +841,11 @@ fn Context(comptime Source: type) type {
                             any = true;
                             // The pair closes every bracket opened after it.
                             var closed: Open = undefined;
-                            while (stack.len() > k) stack.pop(&closed) catch break;
+                            while (stack.len() > k) {
+                                // the stack holds more than k: a pop finds one
+                                const popped = if (stack.pop(&closed)) |_| true else |_| false;
+                                if (!popped) break;
+                            }
                             break;
                         }
                     }

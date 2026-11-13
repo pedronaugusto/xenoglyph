@@ -324,7 +324,7 @@ pub const Ascii = struct {
 
 /// A code point's prototype (confusables.txt): itself, another code point,
 /// or a run of `prototypes`. A value, so the steps that hold one copy.
-const Prototype = struct {
+pub const Prototype = struct {
     one: u21 = 0,
     start: u32 = 0,
     len: u8 = 0,

@@ -201,7 +201,7 @@ fn Automaton(comptime rules: Rules) type {
             for (&after, 0..) |*a, byte| {
                 const index = records.ascii_cluster_indexes[byte];
                 a.* = transitions[start][index] & 0x7f;
-                for (transitions) |row| std.debug.assert(row[index] & 0x7f == a.*);
+                for (transitions) |row| aegis.assert.invariant(row[index] & 0x7f == a.*, "an ASCII code point leads to one state whatever came before it");
             }
             break :blk after;
         };

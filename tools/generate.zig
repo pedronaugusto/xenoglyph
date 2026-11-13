@@ -542,7 +542,7 @@ pub fn numbers(w: *std.Io.Writer, values: anytype) !void {
     var column: usize = 0;
     for (values) |v| {
         var buffer: [48]u8 = undefined;
-        const text = std.mem.print(&buffer, "{d},", .{v}) catch unreachable; // unreachable: a u128 and a comma fit 48 bytes
+        const text = std.mem.print(&buffer, "{d},", .{v}) catch unreachable; // glint-ignore: Z026 -- a u128 and a comma fit 48 bytes
         if (column == 0) {
             try w.writeAll("   ");
             column = 3;
@@ -821,7 +821,7 @@ fn rangesFile(gpa: Allocator, ucd: Ucd, p: Properties, aliases: Aliases) ![]cons
         if (!std.mem.eql(u8, status, "C") and !std.mem.eql(u8, status, "S")) continue;
         fold[l.first] = try std.fmt.parseInt(u21, l.field(1), 16);
     }
-    var members: std.AutoArrayHashMapUnmanaged(u21, std.ArrayList(u21)) = .empty;
+    var members: std.array_hash_map.Auto(u21, std.ArrayList(u21)) = .empty;
     for (fold, 0..) |target, cp| if (target != cp) {
         const entry = try members.getOrPut(gpa, target);
         if (!entry.found_existing) {
@@ -861,7 +861,7 @@ const binary_sources = [_][]const u8{ "PropList.txt", "DerivedCoreProperties.txt
 /// from UnicodeData.txt. Written as an enum of their long names in lower case, in order of name,
 /// and each one's code points as ranges, indexed by it. Returns their long names in that order.
 fn writeBinary(gpa: Allocator, ucd: Ucd, w: *std.Io.Writer) ![]const []const u8 {
-    var sets: std.StringArrayHashMapUnmanaged([]bool) = .empty;
+    var sets: std.array_hash_map.String([]bool) = .empty;
     for (binary_sources) |path| {
         var lines: Lines = .init(try ucd.read(path));
         while (try lines.next()) |l| {
