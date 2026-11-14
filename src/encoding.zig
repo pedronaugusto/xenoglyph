@@ -40,6 +40,26 @@ pub fn forLabel(label: []const u8) ?Encoding {
     return null;
 }
 
+/// A label of the standard's and the encoding it names.
+pub const Label = struct {
+    /// Lower-case, as the standard lists it.
+    label: []const u8,
+    encoding: Encoding,
+};
+
+/// Every label the standard gives, each with the encoding it names, in
+/// the table's order (sorted, as `forLabel` searches it); CP437 has none.
+/// Nothing is allocated: the list is the table, read at compile time.
+pub fn labels() []const Label {
+    return &label_list;
+}
+
+const label_list = list: {
+    var out: [tables.labels.len]Label = undefined;
+    for (tables.labels, &out) |entry, *l| l.* = .{ .label = entry[0], .encoding = @fromBackingInt(@intCast(entry[1])) };
+    break :list out;
+};
+
 /// The encoding's name in the standard (`"windows-1252"`, `"Shift_JIS"`);
 /// `"IBM437"` for CP437.
 pub fn name(e: Encoding) []const u8 {

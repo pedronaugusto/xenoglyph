@@ -78,6 +78,20 @@ test "every label of encodings.json names its encoding, whatever its case and su
     try std.testing.expect(count > 200);
     try std.testing.expectEqual(@as(?Encoding, null), encoding.forLabel("utf8 " ++ "x"));
     try std.testing.expectEqual(@as(?Encoding, null), encoding.forLabel("\u{a0}utf-8"));
+    // labels() lists the same labels, as many as encodings.json gives.
+    try std.testing.expectEqual(count, encoding.labels().len);
+}
+
+test "labels() gives each label once, sorted, and forLabel reads each as the encoding it lists" {
+    const all = encoding.labels();
+    try std.testing.expect(all.len > 200);
+    for (all, 0..) |l, i| {
+        try std.testing.expectEqual(l.encoding, encoding.forLabel(l.label).?);
+        for (l.label) |c| try std.testing.expect(!std.ascii.isUpper(c));
+        if (i > 0) try std.testing.expect(std.mem.order(u8, all[i - 1].label, l.label) == .lt);
+    }
+    // The list is the table itself: asked twice, the same memory.
+    try std.testing.expectEqual(all.ptr, encoding.labels().ptr);
 }
 
 test "CP437 decodes and encodes every byte, as zip names hold them" {

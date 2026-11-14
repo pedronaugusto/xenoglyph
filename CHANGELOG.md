@@ -13,6 +13,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `encoding.labels()`: every label of the WHATWG Encoding Standard with the encoding it names (`encoding.Label`), in the table's sorted order, the table itself with nothing allocated. A caller can list what `forLabel` takes, as relic's encoding generator does to try each label against an iconv; `forLabel` reads each entry back as its encoding.
 - `idna.check2008(name)`: IDNA2008's validity of a name as written (RFC 5891 §5.3 to 5.5, RFC 5892, RFC 5893), with no UTS #46 mapping: each label against RFC 5892's derived property values with the ContextJ and ContextO rules of its Appendix A (A.3 to A.9 new), NFC, hyphens, a leading combining mark, the Bidi rule, and lengths in A-label form; an `xn--` label (in any case) must decode to a valid U-label that encodes back to it. `idna.Failures2008` says what failed. JSON Schema's `idn-hostname`.
 - `idna.status2008(cp)` and `classes.Idna2008`: a code point's derived property (PVALID, CONTEXTJ, CONTEXTO, DISALLOWED, UNASSIGNED), derived by RFC 5892's algorithm from the UCD 18.0.0 into the IDNA table (its three spare bits; the table is no larger). The generator reads two more UCD files, Blocks.txt and HangulSyllableType.txt. It equals IANA's table for Unicode 12.0.0 at every code point that table assigns.
 
