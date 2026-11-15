@@ -19,6 +19,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Pins aegis f52eabe (the aegis line, with `Id.raws`), the one aegis the family moves to together; the development build pins preflight ci-standard f991816 and shakedown 327bc61, whose fuzz runner takes the options preflight passes it; ci.yml regenerated (`bay generate`).
 - Pins aegis a0c467e, still 0.2.4: additive commits after 3c0b13e (the role declarations a linter reads, `lint_rules`; `Secret.make`), the aegis the development build's preflight selects. Nothing xenoglyph calls changed.
 - aegis 0.3: its contracts are `assert.invariant`, the one always-on assertion, where `assert.pre` and `assert.post` were its other names.
 - The types of public structs' fields are public themselves, so a caller can name what it holds: `bidi.Kind`, `canonical`'s `Long`, `collation.Elements`, `encoding.Iso2022Event`, `encoding.IsoEncode` and `Encoder.Held`, `grapheme.Class`, `line.Behind`, `case`'s `Behind` and `Queue`, `normalize.Expansion`, and `security.Ascii` and `security.Mapped`.
