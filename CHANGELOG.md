@@ -19,6 +19,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The test durations the release tier recorded (`ci/durations.json`, `ci/costs.json`, from run 43747464408's record) size the riscv64 suite under QEMU into two jobs, by preflight's plan: as one job, the suite (997 s of the tests that ran, the exhaustive encoding test 576 s of it) ran out of its 20 minutes with the conformance tests unstarted.
 - Pins aegis f52eabe (the aegis line, with `Id.raws`), the one aegis the family moves to together; the development build pins preflight ci-standard f991816 and shakedown 327bc61, whose fuzz runner takes the options preflight passes it; ci.yml regenerated (`bay generate`).
 - Pins aegis a0c467e, still 0.2.4: additive commits after 3c0b13e (the role declarations a linter reads, `lint_rules`; `Secret.make`), the aegis the development build's preflight selects. Nothing xenoglyph calls changed.
 - aegis 0.3: its contracts are `assert.invariant`, the one always-on assertion, where `assert.pre` and `assert.post` were its other names.
