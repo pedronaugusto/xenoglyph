@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-21
+
 ### Breaking
 
 - `encoding.Encoder.held` holds the encoder's pending bytes as an `encoding.Encoder.Held` (a bounded array), where it was a `[4]u8` beside `encoding.Encoder.held_len`, which is gone.
@@ -16,6 +18,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `encoding.labels()`: every label of the WHATWG Encoding Standard with the encoding it names (`encoding.Label`), in the table's sorted order, the table itself with nothing allocated. A caller can list what `forLabel` takes, as relic's encoding generator does to try each label against an iconv; `forLabel` reads each entry back as its encoding.
 - `idna.check2008(name)`: IDNA2008's validity of a name as written (RFC 5891 §5.3 to 5.5, RFC 5892, RFC 5893), with no UTS #46 mapping: each label against RFC 5892's derived property values with the ContextJ and ContextO rules of its Appendix A (A.3 to A.9 new), NFC, hyphens, a leading combining mark, the Bidi rule, and lengths in A-label form; an `xn--` label (in any case) must decode to a valid U-label that encodes back to it. `idna.Failures2008` says what failed. JSON Schema's `idn-hostname`.
 - `idna.status2008(cp)` and `classes.Idna2008`: a code point's derived property (PVALID, CONTEXTJ, CONTEXTO, DISALLOWED, UNASSIGNED), derived by RFC 5892's algorithm from the UCD 18.0.0 into the IDNA table (its three spare bits; the table is no larger). The generator reads two more UCD files, Blocks.txt and HangulSyllableType.txt. It equals IANA's table for Unicode 12.0.0 at every code point that table assigns.
+- Grapheme_Cluster_Break, Word_Break and Sentence_Break as a regular expression's class reads them: `properties.graphemeBreakRanges`, `wordBreakRanges` and `sentenceBreakRanges`, each value's code points as sorted ranges, and `graphemeBreakNamed`, `wordBreakNamed` and `sentenceBreakNamed`, each value by every name PropertyValueAliases.txt gives it, exactly or loosely. A value it keeps that no code point has any more (`E_Base`, `E_Modifier`, `Glue_After_Zwj`, `E_Base_GAZ`) names nothing. Generated with the other ranges.
+- Each property value's code points as sorted ranges, for a caller that needs the whole set (a regular expression's class): `properties.generalCategoryRanges`, `scriptRanges`, `scriptExtensionRanges`, `coreRanges` (DerivedCoreProperties' binary properties) and `whiteSpaceRanges`; and `case.simpleFoldOrbit`, every code point that simple case folding takes to the same one. Generated with the other tables (`src/data/ranges.zig`).
+- Every binary property of PropList.txt, DerivedCoreProperties.txt, emoji-data.txt and DerivedNormalizationProps.txt, and Bidi_Mirrored, as `properties.Binary` with `binaryRanges`; General_Category's groups (L, LC, M, N, P, S, Z, C) as `GeneralCategory.Group`, with `within` and `generalCategoryGroupRanges`.
+- Properties and values found by name, by every name and alias PropertyAliases.txt and PropertyValueAliases.txt give them, exactly (as ECMA-262 compares them) or by UAX #44's LM3 (as UTS #18 does): `propertyNamed`, `binaryNamed`, `scriptNamed`, `generalCategoryNamed`. ucd/ carries PropertyAliases.txt 18.0.0.
+- `case.nextFolding`: the next code point with a simple folding orbit, so a class closes under folding orbit by orbit, not code point by code point.
 
 ### Changed
 
@@ -31,14 +38,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Mixed operators are parenthesized where Zig master refuses them as ambiguous (`a >> b & c`, `a | b << c`, `a * b % c`, `a and b or c`): the parentheses say what Zig 0.17 already did, and nothing changes at runtime.
 - Pins aegis 0.3.0.
 
-
-### Added
-
-- Grapheme_Cluster_Break, Word_Break and Sentence_Break as a regular expression's class reads them: `properties.graphemeBreakRanges`, `wordBreakRanges` and `sentenceBreakRanges`, each value's code points as sorted ranges, and `graphemeBreakNamed`, `wordBreakNamed` and `sentenceBreakNamed`, each value by every name PropertyValueAliases.txt gives it, exactly or loosely. A value it keeps that no code point has any more (`E_Base`, `E_Modifier`, `Glue_After_Zwj`, `E_Base_GAZ`) names nothing. Generated with the other ranges.
-- Each property value's code points as sorted ranges, for a caller that needs the whole set (a regular expression's class): `properties.generalCategoryRanges`, `scriptRanges`, `scriptExtensionRanges`, `coreRanges` (DerivedCoreProperties' binary properties) and `whiteSpaceRanges`; and `case.simpleFoldOrbit`, every code point that simple case folding takes to the same one. Generated with the other tables (`src/data/ranges.zig`).
-- Every binary property of PropList.txt, DerivedCoreProperties.txt, emoji-data.txt and DerivedNormalizationProps.txt, and Bidi_Mirrored, as `properties.Binary` with `binaryRanges`; General_Category's groups (L, LC, M, N, P, S, Z, C) as `GeneralCategory.Group`, with `within` and `generalCategoryGroupRanges`.
-- Properties and values found by name, by every name and alias PropertyAliases.txt and PropertyValueAliases.txt give them, exactly (as ECMA-262 compares them) or by UAX #44's LM3 (as UTS #18 does): `propertyNamed`, `binaryNamed`, `scriptNamed`, `generalCategoryNamed`. ucd/ carries PropertyAliases.txt 18.0.0.
-- `case.nextFolding`: the next code point with a simple folding orbit, so a class closes under folding orbit by orbit, not code point by code point.
 ## [0.5.1] - 2026-10-27
 
 ### Changed
