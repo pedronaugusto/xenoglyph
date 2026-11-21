@@ -29,6 +29,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Internally, offsets and widths are computed in their aegis units, buffers kept by hand are `aegis.bounded.Array`, and the bidi stack is a bounded array of its own; output is unchanged.
 - `properties.Property`, what `propertyNamed` returns, grew three cases: `grapheme_cluster_break`, `word_break` and `sentence_break` (Added, below). A switch over it names them.
 - Mixed operators are parenthesized where Zig master refuses them as ambiguous (`a >> b & c`, `a | b << c`, `a * b % c`, `a and b or c`): the parentheses say what Zig 0.17 already did, and nothing changes at runtime.
+- Pins aegis 0.3.0.
 
 
 ### Added
